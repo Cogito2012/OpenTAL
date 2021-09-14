@@ -1,6 +1,9 @@
-torch==1.4
-torchvision==0.5
+# torch
+# torchvision 
+# If using RTX 3090, install torch and torchvision libs by "conda install pytorch=1.9.0 torchvision=0.10.0 cudatoolkit-dev -c pytorch -c conda-forge"
 tqdm
 numpy
 pandas
 opencv-python
+PyYaml
+joblib
