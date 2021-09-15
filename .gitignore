@@ -2,7 +2,6 @@
 .idea/*
 models/*
 output/*
-datasets/*
 cuhk-val/*
 
 # ignored files
