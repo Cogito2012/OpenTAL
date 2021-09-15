@@ -257,7 +257,8 @@ if __name__ == '__main__':
     train_video_annos = get_video_anno(train_video_infos,
                                        config['dataset']['training']['video_anno_path'])
     train_data_dict = load_video_data(train_video_infos,
-                                      config['dataset']['training']['video_data_path'])
+                                      config['dataset']['training']['video_data_path'],
+                                      config['dataset']['class_info_path'])
     train_dataset = THUMOS_Dataset(train_data_dict,
                                    train_video_infos,
                                    train_video_annos)

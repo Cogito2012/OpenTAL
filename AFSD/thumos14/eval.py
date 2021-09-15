@@ -3,7 +3,7 @@ from AFSD.evaluation.eval_detection import ANETdetection
 
 parser = argparse.ArgumentParser()
 parser.add_argument('output_json', type=str)
-parser.add_argument('gt_json', type=str, default='./thumos_annotations/thumos_gt.json', nargs='?')
+parser.add_argument('gt_json', type=str, default='datasets/thumos14/annotations/thumos_gt.json', nargs='?')
 args = parser.parse_args()
 
 tious = [0.3, 0.4, 0.5, 0.6, 0.7]

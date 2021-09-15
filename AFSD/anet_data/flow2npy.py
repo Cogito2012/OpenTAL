@@ -9,7 +9,7 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument('thread_num', type=int)
 parser.add_argument('--video_info_path', type=str,
-                    default='anet_annotations/video_info_train_val.json')
+                    default='datasets/activitynet/annotations/video_info_train_val.json')
 parser.add_argument('--flow_frame_path', type=str,
                     default='datasets/activitynet/flow/frame_train_val_112')
 parser.add_argument('--flow_npy_path', type=str,

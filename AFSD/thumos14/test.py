@@ -37,7 +37,7 @@ flow_checkpoint_path = config['testing'].get('flow_checkpoint_path',
 
 if __name__ == '__main__':
     video_infos = get_video_info(config['dataset']['testing']['video_info_path'])
-    originidx_to_idx, idx_to_class = get_class_index_map()
+    originidx_to_idx, idx_to_class = get_class_index_map(config['dataset']['class_info_path'])
 
     npy_data_path = config['dataset']['testing']['video_data_path']
     if fusion:

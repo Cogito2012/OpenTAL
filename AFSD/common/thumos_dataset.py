@@ -10,7 +10,7 @@ import random
 import math
 
 
-def get_class_index_map(class_info_path='thumos_annotations/Class Index_Detection.txt'):
+def get_class_index_map(class_info_path='datasets/thumos14/annotations/Class_Index_Detection.txt'):
     txt = np.loadtxt(class_info_path, dtype=str)
     originidx_to_idx = {}
     idx_to_class = {}
@@ -33,10 +33,9 @@ def get_video_info(video_info_path):
     return video_infos
 
 
-def get_video_anno(video_infos,
-                   video_anno_path):
+def get_video_anno(video_infos, video_anno_path, class_info_path):
     df_anno = pd.DataFrame(pd.read_csv(video_anno_path)).values[:]
-    originidx_to_idx, idx_to_class = get_class_index_map()
+    originidx_to_idx, idx_to_class = get_class_index_map(class_info_path)
     video_annos = {}
     for anno in df_anno:
         video_name = anno[0]

@@ -5,7 +5,7 @@ from AFSD.evaluation.eval_detection import ANETdetection
 parser = argparse.ArgumentParser()
 parser.add_argument('output_json', type=str)
 parser.add_argument('gt_json', type=str,
-                    default='anet_annotations/activity_net_1_3_new.json', nargs='?')
+                    default='datasets/activitynet/annotations/activity_net_1_3_new.json', nargs='?')
 args = parser.parse_args()
 
 tious = np.linspace(0.5, 0.95, 10)

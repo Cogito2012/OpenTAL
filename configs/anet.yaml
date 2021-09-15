@@ -2,7 +2,7 @@ dataset:
   num_classes: 201
   training:
     video_mp4_path: datasets/activitynet/train_val_npy_112
-    video_info_path: anet_annotations/video_info_train_val.json
+    video_info_path: datasets/activitynet/annotations/video_info_train_val.json
     video_anno_path: None
     video_data_path: None
     clip_length: 768
@@ -10,7 +10,7 @@ dataset:
     crop_size: 96
   testing:
     video_mp4_path: datasets/activitynet/train_val_npy_112
-    video_info_path: anet_annotations/video_info_train_val.json
+    video_info_path: datasets/activitynet/annotations/video_info_train_val.json
     video_anno_path: None
     video_data_path: None
     crop_size: 96

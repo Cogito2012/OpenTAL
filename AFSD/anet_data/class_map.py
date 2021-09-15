@@ -1,6 +1,6 @@
 import numpy as np
 
-class_name_path = 'anet_annotations/action_name.txt'
+class_name_path = 'datasets/activitynet/annotations/action_name.txt'
 classes = np.loadtxt(class_name_path, np.str, delimiter='\n')
 
 class_to_id = {}

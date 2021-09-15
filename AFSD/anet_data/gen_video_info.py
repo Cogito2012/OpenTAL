@@ -3,8 +3,8 @@ import json
 from AFSD.anet_data.class_map import class_to_id
 import cv2
 
-origin_video_info_path = 'anet_annotations/video_info_19993.json'
-new_video_info_path = 'anet_annotations/video_info_train_val.json'
+origin_video_info_path = 'datasets/activitynet/annotations/video_info_19993.json'
+new_video_info_path = 'datasets/activitynet/annotations/video_info_train_val.json'
 video_dir = 'datasets/activitynet/train_val_112'
 
 def load_json(file):

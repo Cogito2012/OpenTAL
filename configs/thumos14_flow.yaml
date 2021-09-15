@@ -1,17 +1,18 @@
 dataset:
   num_classes: 21
+  class_info_path: ./datasets/thumos14/annotations/Class_Index_Detection.txt
   training:
     video_mp4_path: ./datasets/thumos14/validation/
-    video_info_path: thumos_annotations/val_video_info.csv
-    video_anno_path: thumos_annotations/val_Annotation_ours.csv
+    video_info_path: datasets/thumos14/annotations/val_video_info.csv
+    video_anno_path: datasets/thumos14/annotations/val_Annotation_ours.csv
     video_data_path: ./datasets/thumos14/validation_flow_npy/
     clip_length: 256
     clip_stride: 30
     crop_size: 96
   testing:
     video_mp4_path: ./datasets/thumos14/test/
-    video_info_path: thumos_annotations/test_video_info.csv
-    video_anno_path: thumos_annotations/test_Annotation_ours.csv
+    video_info_path: datasets/thumos14/annotations/test_video_info.csv
+    video_anno_path: datasets/thumos14/annotations/test_Annotation_ours.csv
     video_data_path: ./datasets/thumos14/test_flow_npy/
     crop_size: 96
     clip_length: 256
