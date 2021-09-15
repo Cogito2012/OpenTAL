@@ -1,7 +1,8 @@
-activitynet/*
-thumos14/*
-finegym/*
+activitynet/*_npy/*
+thumos14/*_npy/*
+finegym/*_npy/*
 *.pt
 *.pth
 *.mp4
 *.npy
+download_report.json
