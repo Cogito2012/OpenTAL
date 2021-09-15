@@ -139,7 +139,11 @@ def forward_one_epoch(net, clips, targets, scores=None, training=True, ssl=True)
              output_dict['center'], output_dict['priors']],
             targets)
         loss_start, loss_end = calc_bce_loss(output_dict['start'], output_dict['end'], scores)
-        scores_ = F.interpolate(scores, scale_factor=1.0 / 4)
+        versions = torch.__version__.split('.')
+        if int(versions[0]) == 1 and int(versions[1]) >= 6: # version later than torch 1.6.0
+            scores_ = F.interpolate(scores, scale_factor=1.0 / 4, recompute_scale_factor=True)
+        else:
+            scores_ = F.interpolate(scores, scale_factor=1.0 / 4)
         loss_start_loc_prop, loss_end_loc_prop = calc_bce_loss(output_dict['start_loc_prop'],
                                                                output_dict['end_loc_prop'],
                                                                scores_)
@@ -255,10 +259,10 @@ if __name__ == '__main__':
     """
     train_video_infos = get_video_info(config['dataset']['training']['video_info_path'])
     train_video_annos = get_video_anno(train_video_infos,
-                                       config['dataset']['training']['video_anno_path'])
+                                       config['dataset']['training']['video_anno_path'],
+                                       config['dataset']['class_info_path'])
     train_data_dict = load_video_data(train_video_infos,
-                                      config['dataset']['training']['video_data_path'],
-                                      config['dataset']['class_info_path'])
+                                      config['dataset']['training']['video_data_path'])
     train_dataset = THUMOS_Dataset(train_data_dict,
                                    train_video_infos,
                                    train_video_annos)

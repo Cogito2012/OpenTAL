@@ -28,6 +28,9 @@ def get_config():
 
     parser.add_argument('--fusion', action='store_true')
 
+    parser.add_argument('--open_set', action='store_true')
+    parser.add_argument('--split', type=int, choices=[0, 1, 2, 3, 4], default=0)
+
     args = parser.parse_args()
 
     with open(args.config_file, 'r', encoding='utf-8') as f:
@@ -67,6 +70,14 @@ def get_config():
     if args.output_json is not None:
         data['testing']['output_json'] = args.output_json
 
+    data['open_set'] = args.open_set
+    if args.open_set:
+        data['dataset']['class_info_path'] = data['dataset']['class_info_path'].format(id=args.split)
+        data['dataset']['training']['video_anno_path'] = data['dataset']['training']['video_anno_path'].format(id=args.split)
+        data['dataset']['testing']['video_anno_path'] = data['dataset']['testing']['video_anno_path'].format(id=args.split)
+        data['training']['checkpoint_path'] = data['training']['checkpoint_path'].format(id=args.split)
+        data['testing']['checkpoint_path'] = data['testing']['checkpoint_path'].format(id=args.split)
+    
     return data
 
 

@@ -3,6 +3,7 @@
 models/*
 output/*
 cuhk-val/*
+experiments/logs
 
 # ignored files
 .DS_Store
