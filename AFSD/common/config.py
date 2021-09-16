@@ -77,6 +77,7 @@ def get_config():
         data['dataset']['testing']['video_anno_path'] = data['dataset']['testing']['video_anno_path'].format(id=args.split)
         data['training']['checkpoint_path'] = data['training']['checkpoint_path'].format(id=args.split)
         data['testing']['checkpoint_path'] = data['testing']['checkpoint_path'].format(id=args.split)
+        data['testing']['output_path'] = data['testing']['output_path'].format(id=args.split)
     
     return data
 

@@ -12,7 +12,8 @@ dataset:
   testing:
     video_mp4_path: ./datasets/thumos14/test/
     video_info_path: ./datasets/thumos14/annotations_open/test_video_info.csv
-    video_anno_path: ./datasets/thumos14/annotations_open/split_{id:d}/test_Annotation_known.csv
+    video_anno_path: ./datasets/thumos14/annotations_open/split_{id:d}/test_Annotation_known.csv  # for closed-set eval
+    video_anno_open_path: ./datasets/thumos14/annotations_open/test_Annotation_open.csv  # for open-set eval
     video_data_path: ./datasets/thumos14/test_npy/
     crop_size: 96
     clip_length: 256
@@ -38,6 +39,6 @@ testing:
   top_k: 5000
   nms_thresh: 0.5
   nms_sigma: 0.5
-  checkpoint_path: ./models/thumos14/split_{id:d}/checkpoint-15.ckpt
-  output_path: ./output
+  checkpoint_path: ./models/thumos14/split_{id:d}/checkpoint-latest.ckpt
+  output_path: ./output/split_{id:d}
   output_json: detection_results.json

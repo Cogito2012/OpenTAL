@@ -78,12 +78,28 @@ def set_rng_state(states):
         torch.cuda.set_rng_state(states[3])
 
 
+def update_the_latest(src_file, dest_file):
+    # source file must exist
+    assert os.path.exists(src_file), "src file does not exist!"
+    # destinate file should be removed first if exists
+    if os.path.lexists(dest_file):
+        os.remove(dest_file)
+    os.symlink(src_file, dest_file)
+
+
 def save_model(epoch, model, optimizer):
-    torch.save(model.module.state_dict(),
-               os.path.join(checkpoint_path, 'checkpoint-{}.ckpt'.format(epoch)))
+    # save the model weights
+    model_file = os.path.join(checkpoint_path, 'checkpoint-{}.ckpt'.format(epoch))
+    torch.save(model.module.state_dict(), model_file)
+    update_the_latest(model_file,
+                     os.path.join(checkpoint_path, 'checkpoint-latest.ckpt'))
+    # save the training status
+    state_file = os.path.join(train_state_path, 'checkpoint_{}.ckpt'.format(epoch))
     torch.save({'optimizer': optimizer.state_dict(),
                 'state': get_rng_states()},
-               os.path.join(train_state_path, 'checkpoint_{}.ckpt'.format(epoch)))
+                state_file)
+    update_the_latest(state_file,
+                     os.path.join(train_state_path, 'checkpoint_latest.ckpt'))
 
 
 def resume_training(resume, model, optimizer):

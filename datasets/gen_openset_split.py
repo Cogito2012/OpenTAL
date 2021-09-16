@@ -108,3 +108,8 @@ if __name__ == '__main__':
     video_info_file = os.path.join(anno_path, 'test_video_info.csv')
     assert os.path.exists(video_info_file), f'File does not exist! {video_info_file}'
     shutil.copyfile(video_info_file, os.path.join(result_anno_path, 'test_video_info.csv'))
+
+    open_anno_file = os.path.join(anno_path, 'test_Annotation_ours.csv')
+    assert os.path.exists(open_anno_file), f'File does not exist! {open_anno_file}'
+    shutil.copyfile(open_anno_file, os.path.join(result_anno_path, 'test_Annotation_open.csv'))
+    
