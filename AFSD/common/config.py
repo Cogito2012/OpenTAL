@@ -61,6 +61,7 @@ def get_config():
     data['training']['resume'] = args.resume
     data['ngpu'] = args.ngpu
     data['testing']['fusion'] = args.fusion
+    data['testing']['split'] = args.split
     if args.nms_thresh is not None:
         data['testing']['nms_thresh'] = args.nms_thresh
     if args.nms_sigma is not None:
