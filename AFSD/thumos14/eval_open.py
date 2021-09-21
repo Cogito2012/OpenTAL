@@ -6,8 +6,10 @@ import numpy as np
 parser = argparse.ArgumentParser()
 parser.add_argument('output_json', type=str)
 parser.add_argument('gt_json', type=str, default='datasets/thumos14/annotations/thumos_gt.json', nargs='?')
+parser.add_argument('--cls_idx_known', type=str)
 parser.add_argument('--all_splits', nargs='+', type=int)
 parser.add_argument('--open_set', action='store_true')
+parser.add_argument('--ood_threshold', type=float, default=1.0)
 args = parser.parse_args()
 
 tious = [0.3, 0.4, 0.5, 0.6, 0.7]
@@ -18,11 +20,15 @@ for split in args.all_splits:
     # GT file and Pred file
     gt_file = args.gt_json if args.open_set else args.gt_json.format(id=split)
     pred_file = args.output_json.format(id=split)
+    cls_idx_known = args.cls_idx_known.format(id=split)
     # instantiate evaluator
     anet_detection = ANETdetection(
         ground_truth_filename=gt_file,
         prediction_filename=pred_file,
+        cls_idx_detection=cls_idx_known,
         subset='test', 
+        openset=args.open_set,
+        ood_threshold=args.ood_threshold,
         tiou_thresholds=tious,
         verbose=False)
     # run evaluation
