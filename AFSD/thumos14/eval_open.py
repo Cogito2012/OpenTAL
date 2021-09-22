@@ -1,6 +1,6 @@
 import argparse
 from AFSD.evaluation.eval_detection import ANETdetection
-import os
+import os, json
 import numpy as np
 
 parser = argparse.ArgumentParser()
@@ -9,10 +9,20 @@ parser.add_argument('gt_json', type=str, default='datasets/thumos14/annotations/
 parser.add_argument('--cls_idx_known', type=str)
 parser.add_argument('--all_splits', nargs='+', type=int)
 parser.add_argument('--open_set', action='store_true')
-parser.add_argument('--ood_threshold', type=float, default=1.0)
+parser.add_argument('--trainset_result', type=str)
 args = parser.parse_args()
 
 tious = [0.3, 0.4, 0.5, 0.6, 0.7]
+
+
+def read_threshold(trainset_result):
+    assert os.path.exists(trainset_result), 'File does not exist! %s'%(trainset_result)
+    with open(trainset_result, 'r') as fobj:
+        data = json.load(fobj)
+        threshold = data['external_data']['threshold']
+    print(f'The threshold (95%) is: {threshold:.12f}')
+    return threshold
+
 
 mAPs_all, average_mAP_all = [], []
 for split in args.all_splits:
@@ -21,6 +31,8 @@ for split in args.all_splits:
     gt_file = args.gt_json if args.open_set else args.gt_json.format(id=split)
     pred_file = args.output_json.format(id=split)
     cls_idx_known = args.cls_idx_known.format(id=split)
+    # read threshold value
+    threshold = read_threshold(args.trainset_result.format(id=split)) if args.open_set else 0
     # instantiate evaluator
     anet_detection = ANETdetection(
         ground_truth_filename=gt_file,
@@ -28,7 +40,7 @@ for split in args.all_splits:
         cls_idx_detection=cls_idx_known,
         subset='test', 
         openset=args.open_set,
-        ood_threshold=args.ood_threshold,
+        ood_threshold=threshold,
         tiou_thresholds=tious,
         verbose=False)
     # run evaluation

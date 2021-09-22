@@ -26,6 +26,7 @@ done
 
 MODEL_OUTPUT=output/split_{id:d}/thumos14_open_rgb.json
 CLS_IDX_KNOWN=datasets/thumos14/annotations_open/split_{id:d}/Class_Index_Known.txt
+TRAINSET_RESULT=output/split_{id:d}/thumos14_open_trainset.json
 
 echo -e "\nClosed Set Evaluation (15 Classes)"
 python AFSD/thumos14/eval_open.py \
@@ -40,7 +41,7 @@ python AFSD/thumos14/eval_open.py \
     datasets/thumos14/annotations/thumos_gt.json \
     --cls_idx_known ${CLS_IDX_KNOWN} \
     --open_set \
-    --ood_threshold 0.0001 \
+    --trainset_result ${TRAINSET_RESULT} \
     --all_splits ${ALL_SPLITS}
 
 cd $pwd_dir
