@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed
 import copy
+from tqdm import tqdm
 
 from .utils_eval import get_blocked_videos
 from .utils_eval import interpolated_prec_rec
@@ -212,45 +213,46 @@ class ANETdetection(object):
         activity_index_known = copy.deepcopy(self.activity_index)
         del activity_index_known['__unknown__']
 
-        wi = np.zeros((len(self.tiou_thresholds), len(activity_index_known)))  # (K-class)
+        # wi = np.zeros((len(self.tiou_thresholds), len(activity_index_known)))  # (K-class)
 
-        # Adaptation to query faster
-        ground_truth_by_label = self.ground_truth.groupby('label')
-        prediction_by_label = self.prediction.groupby('label')
+        # # Adaptation to query faster
+        # ground_truth_by_label = self.ground_truth.groupby('label')
+        # prediction_by_label = self.prediction.groupby('label')
 
-        results = Parallel(n_jobs=len(activity_index_known))(
-                    delayed(compute_wilderness_impact)(
-                        ground_truth=ground_truth_by_label.get_group(cidx).reset_index(drop=True),
-                        prediction=self._get_predictions_with_label(prediction_by_label, label_name, cidx),
-                        tiou_thresholds=self.tiou_thresholds,
-                    ) for label_name, cidx in activity_index_known.items())
+        # results = Parallel(n_jobs=len(activity_index_known))(
+        #             delayed(compute_wilderness_impact)(
+        #                 ground_truth=ground_truth_by_label.get_group(cidx).reset_index(drop=True),
+        #                 prediction=self._get_predictions_with_label(prediction_by_label, label_name, cidx),
+        #                 tiou_thresholds=self.tiou_thresholds,
+        #             ) for label_name, cidx in activity_index_known.items())
+        unique_videos = list(set(self.video_lst))
+        wi = compute_wilderness_impact(self.ground_truth, self.prediction, unique_videos, activity_index_known,
+                                            tiou_thresholds=self.tiou_thresholds)
 
-        for i, cidx in enumerate(activity_index_known.values()):
-            wi[:,cidx] = results[i]
+        # for i, cidx in enumerate(activity_index_known.values()):
+        #     wi[:,cidx-1] = results[i]
 
         return wi
 
 
-    def evaluate(self):
+    def evaluate(self, type='AP'):
         """Evaluates a prediction file. For the detection task we measure the
         interpolated mean average precision to measure the performance of a
         method.
         """
-        self.ap = self.wrapper_compute_average_precision()
-        self.mAP = self.ap.mean(axis=1)
-        self.average_mAP = self.mAP.mean()
-
-        out = (self.mAP, self.average_mAP, self.ap)
-
-        # TODO: Sep-21-2021
-        # if self.openset:
-        #     self.wi = self.wrapper_compute_wilderness_impact()
-        #     self.mWI = self.wi.mean()
-        #     self.average_mWI = self.mWI.mean()
-
-        #     out += (self.mWI, self.average_mWI, self.wi)
-            
-        return out
+        if type == 'AP':
+            self.ap = self.wrapper_compute_average_precision()
+            self.mAP = self.ap.mean(axis=1)
+            self.average_mAP = self.mAP.mean()
+            return self.mAP, self.average_mAP, self.ap
+        elif type == 'WI':
+            assert self.openset, 'Wilderness Impact Cannot be Evaluated for Closed Set!'
+            self.wi = self.wrapper_compute_wilderness_impact()
+            self.mWI = self.wi.mean(axis=1)
+            self.average_mWI = self.mWI.mean()
+            return self.mWI, self.average_mWI, self.wi
+        else:
+            raise NotImplementedError
 
 
 def compute_average_precision_detection(ground_truth, prediction, tiou_thresholds=np.linspace(0.5, 0.95, 10)):
@@ -335,67 +337,77 @@ def compute_average_precision_detection(ground_truth, prediction, tiou_threshold
     return ap
 
 
-def compute_wilderness_impact(ground_truth, prediction, tiou_thresholds=np.linspace(0.5, 0.95, 10)):
-    wi = np.ones(len(tiou_thresholds)) * np.inf
-    if prediction.empty:
-        return wi
-    
-    npos = float(len(ground_truth))
-    lock_gt = np.ones((len(tiou_thresholds),len(ground_truth))) * -1
-    # Sort predictions by decreasing score order.
-    sort_idx = prediction['score'].values.argsort()[::-1]
-    prediction = prediction.loc[sort_idx].reset_index(drop=True)
+def compute_wilderness_impact(ground_truth_all, prediction_all, video_list, known_classes, tiou_thresholds=np.linspace(0.5, 0.95, 10)):
+    """ Compute wilderness impact for each video (WI=Po/Pc < 1)
+    """
+    wi = np.zeros((len(tiou_thresholds), len(known_classes)))
 
-    # Initialize true positive and false positive vectors.
-    tp = np.zeros((len(tiou_thresholds), len(prediction)))
-    fpo = np.zeros((len(tiou_thresholds), len(prediction)))
-    fpc = np.zeros((len(tiou_thresholds), len(prediction)))
+    # # Initialize true positive and false positive vectors.
+    tp_u2u = np.zeros((len(tiou_thresholds), len(prediction_all)))
+    tp_k2k = np.zeros((len(tiou_thresholds), len(known_classes), len(prediction_all)))  # TPc in WACV paper
+    fp_u2k = np.zeros((len(tiou_thresholds), len(known_classes), len(prediction_all)))  # FPo in WACV paper
+    fp_k2k = np.zeros((len(tiou_thresholds), len(known_classes), len(prediction_all)))  # FPc in WACV paper
+    fp_k2u = np.zeros((len(tiou_thresholds), len(prediction_all)))
 
-    # Adaptation to query faster
-    ground_truth_gbvn = ground_truth.groupby('video-id')
+    ground_truth_by_vid = ground_truth_all.groupby('video-id')
+    prediction_by_vid = prediction_all.groupby('video-id')
 
-    # Assigning true positive to truly grount truth instances.
-    for idx, this_pred in prediction.iterrows():
-
+    def _get_predictions_with_vid(prediction_by_vid, video_name):
+        """Get all predicitons of the given video. Return empty DataFrame if there
+        is no predcitions with the given video.
+        """
         try:
-            # Check if there is at least one ground truth in the video associated.
-            ground_truth_videoid = ground_truth_gbvn.get_group(this_pred['video-id'])
-        except Exception as e:
-            fpo[:, idx] = 1
-            fpc[:, idx] = 1
-            continue
+            return prediction_by_vid.get_group(video_name).reset_index(drop=True)
+        except:
+            return pd.DataFrame()
 
-        this_gt = ground_truth_videoid.reset_index()
-        tiou_arr = segment_iou(this_pred[['t-start', 't-end']].values,
-                               this_gt[['t-start', 't-end']].values)
-        # We would like to retrieve the predictions with highest tiou score.
-        tiou_sorted_idx = tiou_arr.argsort()[::-1]
-        for tidx, tiou_thr in enumerate(tiou_thresholds):
-            for jdx in tiou_sorted_idx:
-                if tiou_arr[jdx] < tiou_thr:
-                    if this_gt.loc[jdx]['label'] != '__unknown__':
-                        fpc[tidx, idx] = 1
+    # compute the TP, FPo and FPc for each predicted segment.
+    vidx_offset = 0
+    for video_name in tqdm(video_list, total=len(video_list), desc='Compute WI'):
+        ground_truth = ground_truth_by_vid.get_group(video_name).reset_index()
+        prediction = _get_predictions_with_vid(prediction_by_vid, video_name)
+
+        if prediction.empty:
+            vidx_offset += len(prediction)
+            continue  # no predictions for this video
+
+        lock_gt = np.zeros((len(tiou_thresholds),len(ground_truth)))
+        
+        for idx, this_pred in prediction.iterrows():
+            tiou_arr = segment_iou(this_pred[['t-start', 't-end']].values,
+                                ground_truth[['t-start', 't-end']].values)
+            # attach each prediction with the gt that has maximum tIoU
+            max_iou = tiou_arr.max()
+            max_jdx = tiou_arr.argmax()
+            label_pred = this_pred['label']
+            label_gt = int(ground_truth.loc[max_jdx]['label'])
+            for tidx, tiou_thr in enumerate(tiou_thresholds):
+                if max_iou > tiou_thr:
+                    if label_pred == label_gt and lock_gt[tidx, max_jdx] == 0:
+                        if label_gt == 0:
+                            tp_u2u[tidx, vidx_offset + idx] = 1  # true positive (u2u), not used by WI by default
+                        else:
+                            tp_k2k[tidx, label_pred-1, vidx_offset + idx] = 1  # true positive (k2k)
+                        lock_gt[tidx, max_jdx] = 1  # lock this ground truth
                     else:
-                        fpo[tidx, idx] = 1
-                    break
-                if lock_gt[tidx, this_gt.loc[jdx]['index']] >= 0:
-                    continue
-                # Assign as true positive after the filters above.
-                tp[tidx, idx] = 1
-                lock_gt[tidx, this_gt.loc[jdx]['index']] = idx
-                break
-            # TODO: Sep-21-2021
-            if tp[tidx, idx] == 0:
-                if fpc[tidx, idx] == 0 and this_gt['label'] != '__unknown__':
-                    fpc[tidx, idx] = 1
+                        if label_gt == 0: # false positive (u2k)
+                            fp_u2k[tidx, label_pred-1, vidx_offset + idx] = 1
+                        else:   # false positive (k2k, k2u)
+                            if label_pred == 0:
+                                fp_k2u[tidx, vidx_offset + idx] = 1
+                            else:
+                                fp_k2k[tidx, label_pred-1, vidx_offset + idx] = 1
+                else: # GT is defined to be background (known), must be FP
+                    if label_pred == 0:
+                        fp_k2u[tidx, vidx_offset + idx] = 1
+                    else:
+                        fp_k2k[tidx, label_pred-1, vidx_offset + idx] = 1
+        # move the offset 
+        vidx_offset += len(prediction)
 
-    tp_cumsum = np.cumsum(tp, axis=1).astype(np.float)
-    fp_cumsum = np.cumsum(fp, axis=1).astype(np.float)
-    recall_cumsum = tp_cumsum / npos
-
-    precision_cumsum = tp_cumsum / (tp_cumsum + fp_cumsum)
-
-    for tidx in range(len(tiou_thresholds)):
-        ap[tidx] = interpolated_prec_rec(precision_cumsum[tidx,:], recall_cumsum[tidx,:])
+    tp_k2k_sum = np.sum(tp_k2k, axis=-1).astype(np.float)
+    fp_u2k_sum = np.sum(fp_u2k, axis=-1).astype(np.float)
+    fp_k2k_sum = np.sum(fp_k2k, axis=-1).astype(np.float)
+    wi = fp_u2k_sum / (tp_k2k_sum + fp_k2k_sum + 1e-6)
 
     return wi
