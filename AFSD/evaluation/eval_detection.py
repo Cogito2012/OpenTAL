@@ -68,6 +68,8 @@ class ANETdetection(object):
             nr_pred = len(self.prediction)
             print ('\tNumber of predictions: {}'.format(nr_pred))
             print ('\tFixed threshold for tiou score: {}'.format(self.tiou_thresholds))
+        if self.openset:
+            self.stats = {}
 
     def get_activity_index(self, class_info_path):
         txt = np.loadtxt(class_info_path, dtype=str)
@@ -213,25 +215,9 @@ class ANETdetection(object):
         activity_index_known = copy.deepcopy(self.activity_index)
         del activity_index_known['__unknown__']
 
-        # wi = np.zeros((len(self.tiou_thresholds), len(activity_index_known)))  # (K-class)
-
-        # # Adaptation to query faster
-        # ground_truth_by_label = self.ground_truth.groupby('label')
-        # prediction_by_label = self.prediction.groupby('label')
-
-        # results = Parallel(n_jobs=len(activity_index_known))(
-        #             delayed(compute_wilderness_impact)(
-        #                 ground_truth=ground_truth_by_label.get_group(cidx).reset_index(drop=True),
-        #                 prediction=self._get_predictions_with_label(prediction_by_label, label_name, cidx),
-        #                 tiou_thresholds=self.tiou_thresholds,
-        #             ) for label_name, cidx in activity_index_known.items())
         unique_videos = list(set(self.video_lst))
-        wi = compute_wilderness_impact(self.ground_truth, self.prediction, unique_videos, activity_index_known,
+        wi, self.stats = compute_wilderness_impact(self.ground_truth, self.prediction, unique_videos, activity_index_known,
                                             tiou_thresholds=self.tiou_thresholds)
-
-        # for i, cidx in enumerate(activity_index_known.values()):
-        #     wi[:,cidx-1] = results[i]
-
         return wi
 
 
@@ -348,6 +334,8 @@ def compute_wilderness_impact(ground_truth_all, prediction_all, video_list, know
     fp_u2k = np.zeros((len(tiou_thresholds), len(known_classes), len(prediction_all)))  # FPo in WACV paper
     fp_k2k = np.zeros((len(tiou_thresholds), len(known_classes), len(prediction_all)))  # FPc in WACV paper
     fp_k2u = np.zeros((len(tiou_thresholds), len(prediction_all)))
+    fp_bg2u = np.zeros((len(tiou_thresholds), len(prediction_all)))
+    fp_bg2k = np.zeros((len(tiou_thresholds), len(known_classes), len(prediction_all)))
 
     ground_truth_by_vid = ground_truth_all.groupby('video-id')
     prediction_by_vid = prediction_all.groupby('video-id')
@@ -363,14 +351,18 @@ def compute_wilderness_impact(ground_truth_all, prediction_all, video_list, know
 
     # compute the TP, FPo and FPc for each predicted segment.
     vidx_offset = 0
+    all_scores, all_max_tious = [], []
     for video_name in tqdm(video_list, total=len(video_list), desc='Compute WI'):
         ground_truth = ground_truth_by_vid.get_group(video_name).reset_index()
         prediction = _get_predictions_with_vid(prediction_by_vid, video_name)
 
         if prediction.empty:
             vidx_offset += len(prediction)
+            all_scores.extend([0] * len(prediction))  # only for confidence score
+            all_max_tious.extend([0] * len(prediction))
             continue  # no predictions for this video
 
+        all_scores.extend(prediction['score'].values.tolist())
         lock_gt = np.zeros((len(tiou_thresholds),len(ground_truth)))
         
         for idx, this_pred in prediction.iterrows():
@@ -379,6 +371,8 @@ def compute_wilderness_impact(ground_truth_all, prediction_all, video_list, know
             # attach each prediction with the gt that has maximum tIoU
             max_iou = tiou_arr.max()
             max_jdx = tiou_arr.argmax()
+            all_max_tious.append(max_iou)
+
             label_pred = this_pred['label']
             label_gt = int(ground_truth.loc[max_jdx]['label'])
             for tidx, tiou_thr in enumerate(tiou_thresholds):
@@ -399,15 +393,22 @@ def compute_wilderness_impact(ground_truth_all, prediction_all, video_list, know
                                 fp_k2k[tidx, label_pred-1, vidx_offset + idx] = 1
                 else: # GT is defined to be background (known), must be FP
                     if label_pred == 0:
-                        fp_k2u[tidx, vidx_offset + idx] = 1
+                        fp_bg2u[tidx, vidx_offset + idx] = 1
                     else:
-                        fp_k2k[tidx, label_pred-1, vidx_offset + idx] = 1
+                        fp_bg2k[tidx, label_pred-1, vidx_offset + idx] = 1
         # move the offset 
         vidx_offset += len(prediction)
+
+    stats = {'tp_k2k': tp_k2k, 'tp_u2u': tp_u2u, 'fp_k2k': fp_k2k, 'fp_k2u': fp_k2u, 'fp_u2k': fp_u2k, 'fp_bg2k': fp_bg2k, 'fp_bg2u': fp_bg2u,
+             'scores': all_scores, 'max_tious': all_max_tious}
+    
+    # Here we assume the background detections (small tIoU) are from the background class, which is a known class
+    fp_k2u += fp_bg2u
+    fp_k2k += fp_bg2k
 
     tp_k2k_sum = np.sum(tp_k2k, axis=-1).astype(np.float)
     fp_u2k_sum = np.sum(fp_u2k, axis=-1).astype(np.float)
     fp_k2k_sum = np.sum(fp_k2k, axis=-1).astype(np.float)
     wi = fp_u2k_sum / (tp_k2k_sum + fp_k2k_sum + 1e-6)
 
-    return wi
+    return wi, stats

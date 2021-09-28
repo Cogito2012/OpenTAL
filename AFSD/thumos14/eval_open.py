@@ -1,4 +1,5 @@
 import argparse
+import pickle
 from AFSD.evaluation.eval_detection import ANETdetection
 import os, json
 import numpy as np
@@ -47,6 +48,9 @@ for split in args.all_splits:
     mAPs, average_mAP, ap = anet_detection.evaluate(type='AP')
     if args.open_set:
         mWIs, average_mWI, wi = anet_detection.evaluate(type='WI')
+        with open(os.path.join(os.path.dirname(pred_file), 'open_stats.pkl'), 'wb') as f:
+            pickle.dump(anet_detection.stats, f, pickle.HIGHEST_PROTOCOL)
+    
     # report
     eval_filename = 'eval_open.txt' if args.open_set else 'eval.txt'
     with open(os.path.join(os.path.dirname(pred_file), eval_filename), 'w') as f:
