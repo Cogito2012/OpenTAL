@@ -1,7 +1,7 @@
 # ignored folders
 .idea/*
 models/*
-output/*
+output*
 cuhk-val/*
 experiments/logs
 

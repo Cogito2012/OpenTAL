@@ -205,6 +205,12 @@ class ANETdetection(object):
         for i, cidx in enumerate(self.activity_index.values()):  # activity_index starting from 1
             ap[:,cidx-1] = results[i]
 
+        # fp = np.zeros((len(self.tiou_thresholds)))
+        # tp = np.zeros((len(self.tiou_thresholds)))
+        # for i, cidx in enumerate(self.activity_index.values()):
+        #     fp += results[i][1]
+        #     tp += results[i][2]
+        # print(fp, tp)
         return ap
 
 
@@ -323,7 +329,7 @@ def compute_average_precision_detection(ground_truth, prediction, tiou_threshold
     return ap
 
 
-def compute_wilderness_impact(ground_truth_all, prediction_all, video_list, known_classes, tiou_thresholds=np.linspace(0.5, 0.95, 10)):
+def compute_wilderness_impact1(ground_truth_all, prediction_all, video_list, known_classes, tiou_thresholds=np.linspace(0.5, 0.95, 10)):
     """ Compute wilderness impact for each video (WI=Po/Pc < 1)
     """
     wi = np.zeros((len(tiou_thresholds), len(known_classes)))
@@ -402,6 +408,122 @@ def compute_wilderness_impact(ground_truth_all, prediction_all, video_list, know
     stats = {'tp_k2k': tp_k2k, 'tp_u2u': tp_u2u, 'fp_k2k': fp_k2k, 'fp_k2u': fp_k2u, 'fp_u2k': fp_u2k, 'fp_bg2k': fp_bg2k, 'fp_bg2u': fp_bg2u,
              'scores': all_scores, 'max_tious': all_max_tious}
     
+    # Here we assume the background detections (small tIoU) are from the background class, which is a known class
+    fp_k2u += fp_bg2u
+    fp_k2k += fp_bg2k
+
+    tp_k2k_sum = np.sum(tp_k2k, axis=-1).astype(np.float)
+    fp_u2k_sum = np.sum(fp_u2k, axis=-1).astype(np.float)
+    fp_k2k_sum = np.sum(fp_k2k, axis=-1).astype(np.float)
+    wi = fp_u2k_sum / (tp_k2k_sum + fp_k2k_sum + 1e-6)
+
+    return wi, stats
+
+
+def compute_wilderness_impact(ground_truth_all, prediction_all, video_list, known_classes, tiou_thresholds=np.linspace(0.5, 0.95, 10)):
+    """ Compute wilderness impact for each video (WI=Po/Pc < 1)
+    """
+    wi = np.zeros((len(tiou_thresholds), len(known_classes)))
+
+    # # Initialize true positive and false positive vectors.
+    tp_u2u = np.zeros((len(tiou_thresholds), len(prediction_all)))
+    tp_k2k = np.zeros((len(tiou_thresholds), len(known_classes), len(prediction_all)))  # TPc in WACV paper
+    fp_u2k = np.zeros((len(tiou_thresholds), len(known_classes), len(prediction_all)))  # FPo in WACV paper
+    fp_k2k = np.zeros((len(tiou_thresholds), len(known_classes), len(prediction_all)))  # FPc in WACV paper
+    fp_k2u = np.zeros((len(tiou_thresholds), len(prediction_all)))
+    fp_bg2u = np.zeros((len(tiou_thresholds), len(prediction_all)))
+    fp_bg2k = np.zeros((len(tiou_thresholds), len(known_classes), len(prediction_all)))
+
+    ground_truth_by_vid = ground_truth_all.groupby('video-id')
+    prediction_by_vid = prediction_all.groupby('video-id')
+
+    def _get_predictions_with_vid(prediction_by_vid, video_name):
+        """Get all predicitons of the given video. Return empty DataFrame if there
+        is no predcitions with the given video.
+        """
+        try:
+            return prediction_by_vid.get_group(video_name).reset_index(drop=True)
+        except:
+            return pd.DataFrame()
+
+    # compute the TP, FPo and FPc for each predicted segment.
+    vidx_offset = 0
+    all_scores, all_max_tious = [], []
+    num_gt = np.zeros((len(known_classes) + 1,), dtype=np.float32)
+    for video_name in tqdm(video_list, total=len(video_list), desc='Compute WI'):
+        ground_truth = ground_truth_by_vid.get_group(video_name).reset_index()
+        prediction = _get_predictions_with_vid(prediction_by_vid, video_name)
+
+        for _, gt in ground_truth.iterrows():
+            num_gt[gt['label']] += 1  # keep track of the number of GTs
+
+        if prediction.empty:
+            vidx_offset += len(prediction)
+            all_scores.extend([0] * len(prediction))  # only for confidence score
+            all_max_tious.extend([0] * len(prediction))
+            continue  # no predictions for this video
+
+        all_scores.extend(prediction['score'].values.tolist())
+        lock_gt = np.ones((len(tiou_thresholds),len(ground_truth))) * -1
+        
+        for idx, this_pred in prediction.iterrows():
+            tiou_arr = segment_iou(this_pred[['t-start', 't-end']].values,
+                                ground_truth[['t-start', 't-end']].values)
+            tiou_sorted_idx = tiou_arr.argsort()[::-1]  # tIoU in a decreasing order
+
+            label_pred = this_pred['label']
+            for tidx, tiou_thr in enumerate(tiou_thresholds):
+                for jdx in tiou_sorted_idx:
+                    # If tIoU is too small, we assume the prediction is background (assign to bg2u/bg2k)
+                    if tiou_arr[jdx] < tiou_thr:
+                        if label_pred == 0:
+                            fp_bg2u[tidx, vidx_offset + idx] = 1
+                        else:
+                            fp_bg2k[tidx, label_pred-1, vidx_offset + idx] = 1
+                        break
+                    
+                    # Otherwise, consider if this GT (jdx) is already used by previous prediction
+                    if lock_gt[tidx, jdx] >= 0:
+                        continue  # continue to select the second largest tIoU match
+                    
+                    # After the filters above, the GT is not used AND tIoU is large enough.
+                    # Further consider 5 classification cases (TP_u2u, TP_k2k, FP_u2k, FP_k2k, FP_k2u)
+                    label_gt = int(ground_truth.loc[jdx]['label'])
+                    if label_pred == label_gt:  # TP cases
+                        if label_gt == 0:
+                            tp_u2u[tidx, vidx_offset + idx] = 1  # true positive (u2u), not used by WI by default
+                        else:
+                            tp_k2k[tidx, label_pred-1, vidx_offset + idx] = 1  # true positive (k2k)
+                        lock_gt[tidx, jdx] = idx  # lock this ground truth after TP assignment
+                    else:
+                        if label_gt == 0: # false positive (u2k)
+                            fp_u2k[tidx, label_pred-1, vidx_offset + idx] = 1
+                        else:   # false positive (k2k, k2u)
+                            if label_pred == 0:
+                                fp_k2u[tidx, vidx_offset + idx] = 1
+                            else:
+                                fp_k2k[tidx, label_pred-1, vidx_offset + idx] = 1
+                    break
+        # move the offset 
+        vidx_offset += len(prediction)
+
+    stats = {'tp_k2k': tp_k2k, 'tp_u2u': tp_u2u, 'fp_k2k': fp_k2k, 'fp_k2u': fp_k2u, 'fp_u2k': fp_u2k, 'fp_bg2k': fp_bg2k, 'fp_bg2u': fp_bg2u,
+             'scores': all_scores, 'max_tious': all_max_tious}
+    
+    # # report the AP for known classes
+    # ap = np.zeros((len(known_classes), len(tiou_thresholds)), dtype=np.float32)  # K classes
+    # for name, cidx in known_classes.items():
+    #     # precision
+    #     tp_cumsum = np.cumsum(tp_k2k[:, cidx-1, :], axis=1).astype(np.float)
+    #     fp_cumsum = np.cumsum(fp_k2k[:, cidx-1, :], axis=1).astype(np.float)
+    #     recall_cumsum = tp_cumsum / num_gt[cidx]
+    #     # recall
+    #     precision_cumsum = tp_cumsum / (tp_cumsum + fp_cumsum)
+    #     for tidx in range(len(tiou_thresholds)):
+    #         ap[cidx-1, tidx] = interpolated_prec_rec(precision_cumsum[tidx,:], recall_cumsum[tidx,:])
+    # for tidx, tiou in enumerate(tiou_thresholds):
+    #     print(f'tiou={tiou}, AP={ap[:, tidx].mean()}')
+
     # Here we assume the background detections (small tIoU) are from the background class, which is a known class
     fp_k2u += fp_bg2u
     fp_k2k += fp_bg2k

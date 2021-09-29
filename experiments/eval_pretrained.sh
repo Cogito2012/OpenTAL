@@ -33,7 +33,7 @@ CUDA_VISIBLE_DEVICES=${GPU_ID} python AFSD/${DATASET}/test.py \
     --fusion \
     --output_json=${DATASET}_fusion.json
 
-CUDA_VISIBLE_DEVICES=${GPU_ID} python AFSD/${DATASET}/eval.py output/${DATASET}_flow.json
+CUDA_VISIBLE_DEVICES=${GPU_ID} python AFSD/${DATASET}/eval.py output/${DATASET}_fusion.json
 
 cd $pwd_dir
 echo "Experiments finished!"
