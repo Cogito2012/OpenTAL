@@ -19,6 +19,9 @@ max_epoch = config['training']['max_epoch']
 num_classes = config['dataset']['num_classes']
 checkpoint_path = config['training']['checkpoint_path']
 focal_loss = config['training']['focal_loss']
+edl_loss = config['training']['edl_loss'] if 'edl_loss' in config['training'] else False
+edl_config = config['training']['edl_config'] if 'edl_config' in config['training'] else None
+cls_loss_type = 'edl' if edl_loss else 'focal' # by default, we use focal loss
 random_seed = config['training']['random_seed']
 
 train_state_path = os.path.join(checkpoint_path, 'training')
@@ -268,7 +271,9 @@ if __name__ == '__main__':
     Setup loss
     """
     piou = config['training']['piou']
-    CPD_Loss = MultiSegmentLoss(num_classes, piou, 1.0, use_focal_loss=focal_loss)
+    CPD_Loss = MultiSegmentLoss(num_classes, piou, 1.0, cls_loss_type=cls_loss_type, edl_config=edl_config)
+    if edl_loss:
+        CPD_Loss.cls_loss.train_status['total_epoch'] = config['training']['max_epoch']
 
     """
     Setup dataloader
@@ -293,4 +298,6 @@ if __name__ == '__main__':
     start_epoch = resume_training(resume, net, optimizer)
 
     for i in range(start_epoch, max_epoch + 1):
+        if edl_loss:
+            CPD_Loss.cls_loss.train_status['epoch'] = i
         run_one_epoch(i, net, optimizer, train_data_loader, len(train_dataset) // batch_size)

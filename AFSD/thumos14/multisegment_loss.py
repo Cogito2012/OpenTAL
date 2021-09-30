@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from AFSD.common.config import config
+from .cls_loss import FocalLoss_Ori, EvidenceLoss
 
 
 def log_sum_exp(x):
@@ -14,79 +15,6 @@ def log_sum_exp(x):
     """
     x_max = x.data.max()
     return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
-
-
-class FocalLoss_Ori(nn.Module):
-    """
-    This is a implementation of Focal Loss with smooth label cross entropy supported which is proposed in
-    'Focal Loss for Dense Object Detection. (https://arxiv.org/abs/1708.02002)'
-        Focal_Loss= -1*alpha*(1-pt)*log(pt)
-    :param num_class:
-    :param alpha: (tensor) 3D or 4D the scalar factor for this criterion
-    :param gamma: (float,double) gamma > 0 reduces the relative loss for well-classified examples (p>0.5) putting more
-                    focus on hard misclassified example
-    :param smooth: (float,double) smooth value when cross entropy
-    :param size_average: (bool, optional) By default, the losses are averaged over each loss element in the batch.
-    """
-
-    def __init__(self, num_class, alpha=None, gamma=2, balance_index=-1, size_average=True):
-        super(FocalLoss_Ori, self).__init__()
-        self.num_class = num_class
-        if alpha is None:
-            alpha = [0.25, 0.75]
-        self.alpha = alpha
-        self.gamma = gamma
-        self.size_average = size_average
-        self.eps = 1e-6
-
-        if isinstance(self.alpha, (list, tuple)):
-            assert len(self.alpha) == self.num_class
-            self.alpha = torch.Tensor(list(self.alpha))
-        elif isinstance(self.alpha, (float, int)):
-            assert 0 < self.alpha < 1.0, 'alpha should be in `(0,1)`)'
-            assert balance_index > -1
-            alpha = torch.ones((self.num_class))
-            alpha *= 1 - self.alpha
-            alpha[balance_index] = self.alpha
-            self.alpha = alpha
-        elif isinstance(self.alpha, torch.Tensor):
-            self.alpha = self.alpha
-        else:
-            raise TypeError('Not support alpha type, expect `int|float|list|tuple|torch.Tensor`')
-
-    def forward(self, logit, target):
-
-        if logit.dim() > 2:
-            # N,C,d1,d2 -> N,C,m (m=d1*d2*...)
-            logit = logit.view(logit.size(0), logit.size(1), -1)
-            logit = logit.transpose(1, 2).contiguous()  # [N,C,d1*d2..] -> [N,d1*d2..,C]
-            logit = logit.view(-1, logit.size(-1))  # [N,d1*d2..,C]-> [N*d1*d2..,C]
-        target = target.view(-1, 1)  # [N,d1,d2,...]->[N*d1*d2*...,1]
-
-        # -----------legacy way------------
-        #  idx = target.cpu().long()
-        # one_hot_key = torch.FloatTensor(target.size(0), self.num_class).zero_()
-        # one_hot_key = one_hot_key.scatter_(1, idx, 1)
-        # if one_hot_key.device != logit.device:
-        #     one_hot_key = one_hot_key.to(logit.device)
-        # pt = (one_hot_key * logit).sum(1) + epsilon
-
-        # ----------memory saving way--------
-        pt = logit.gather(1, target).view(-1) + self.eps  # avoid apply
-        logpt = pt.log()
-
-        if self.alpha.device != logpt.device:
-            self.alpha = self.alpha.to(logpt.device)
-
-        alpha_class = self.alpha.gather(0, target.view(-1))
-        logpt = alpha_class * logpt
-        loss = -1 * torch.pow(torch.sub(1.0, pt), self.gamma) * logpt
-
-        if self.size_average:
-            loss = loss.mean()
-        else:
-            loss = loss.sum()
-        return loss
 
 
 def iou_loss(pred, target, weight=None, loss_type='giou', reduction='none'):
@@ -140,17 +68,18 @@ def calc_ioa(pred, target):
 
 
 class MultiSegmentLoss(nn.Module):
-    def __init__(self, num_classes, overlap_thresh, negpos_ratio, use_gpu=True,
-                 use_focal_loss=False):
+    def __init__(self, num_classes, overlap_thresh, negpos_ratio, use_gpu=True, 
+                 cls_loss_type='focal', edl_config=None):
         super(MultiSegmentLoss, self).__init__()
         self.num_classes = num_classes
         self.overlap_thresh = overlap_thresh
         self.negpos_ratio = negpos_ratio
         self.use_gpu = use_gpu
-        self.use_focal_loss = use_focal_loss
-        if self.use_focal_loss:
-            self.focal_loss = FocalLoss_Ori(num_classes, balance_index=0, size_average=False,
-                                            alpha=0.25)
+        self.cls_loss_type = cls_loss_type
+        if self.cls_loss_type == 'focal':
+            self.cls_loss = FocalLoss_Ori(num_classes, balance_index=0, size_average=False, alpha=0.25)
+        elif self.cls_loss_type == 'edl':
+            self.cls_loss = EvidenceLoss(num_classes, edl_config)
         self.center_loss = nn.BCEWithLogitsLoss(reduction='sum')
 
     def forward(self, predictions, targets, pre_locs=None):
@@ -244,12 +173,14 @@ class MultiSegmentLoss(nn.Module):
         # softmax focal loss
         conf_p = conf_data.view(-1, num_classes)
         targets_conf = conf_t.view(-1, 1)
-        conf_p = F.softmax(conf_p, dim=1)
-        loss_c = self.focal_loss(conf_p, targets_conf)
+        if self.cls_loss_type == 'focal':
+            conf_p = F.softmax(conf_p, dim=1)
+        loss_c = self.cls_loss(conf_p, targets_conf)
 
         prop_conf_p = prop_conf_data.view(-1, num_classes)
-        prop_conf_p = F.softmax(prop_conf_p, dim=1)
-        loss_prop_c = self.focal_loss(prop_conf_p, prop_conf_t)
+        if self.cls_loss_type == 'focal':
+            prop_conf_p = F.softmax(prop_conf_p, dim=1)
+        loss_prop_c = self.cls_loss(prop_conf_p, prop_conf_t)
 
         N = max(pos.sum(), 1)
         PN = max(prop_pos.sum(), 1)
