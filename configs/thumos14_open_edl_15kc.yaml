@@ -23,6 +23,8 @@ model:
   in_channels: 3
   freeze_bn: true
   freeze_bn_affine: true
+  use_edl: true
+  evidence: exp
   backbone_model: ./models/i3d_models/rgb_imagenet.pt
 
 training:
@@ -48,5 +50,5 @@ testing:
   nms_thresh: 0.5
   nms_sigma: 0.5
   checkpoint_path: ./models/thumos14/edl_15kc/split_{id:d}/checkpoint-latest.ckpt
-  output_path: ./output/split_{id:d}
+  output_path: ./output/edl_15kc/split_{id:d}
   output_json: detection_results.json

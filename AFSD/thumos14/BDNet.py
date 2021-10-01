@@ -12,6 +12,7 @@ from AFSD.prop_pooling.boundary_pooling_op import BoundaryMaxPooling
 num_classes = config['dataset']['num_classes']
 freeze_bn = config['model']['freeze_bn']
 freeze_bn_affine = config['model']['freeze_bn_affine']
+evidence = config['model']['evidence'] if 'evidence' in config['model'] else 'exp'
 
 layer_num = 6
 conv_channels = 512
@@ -368,7 +369,7 @@ class CoarsePyramid(nn.Module):
 
 
 class BDNet(nn.Module):
-    def __init__(self, in_channels=3, backbone_model=None, training=True):
+    def __init__(self, in_channels=3, backbone_model=None, training=True, use_edl=False):
         super(BDNet, self).__init__()
 
         self.coarse_pyramid_detection = CoarsePyramid([832, 1024])
@@ -384,6 +385,8 @@ class BDNet(nn.Module):
             else:
                 self.backbone.load_pretrained_weight(backbone_model)
         self.scales = [1, 4, 4]
+        self.use_edl = use_edl
+        self.evidence = evidence
 
     @staticmethod
     def weight_init(m):
@@ -433,20 +436,40 @@ class BDNet(nn.Module):
             loc, conf, prop_loc, prop_conf, center, priors, start, end, \
             start_loc_prop, end_loc_prop, start_conf_prop, end_conf_prop = \
                 self.coarse_pyramid_detection(feat_dict)
-            return {
-                'loc': loc,
-                'conf': conf,
-                'priors': priors,
-                'prop_loc': prop_loc,
-                'prop_conf': prop_conf,
-                'center': center,
-                'start': start,
-                'end': end,
-                'start_loc_prop': start_loc_prop,
-                'end_loc_prop': end_loc_prop,
-                'start_conf_prop': start_conf_prop,
-                'end_conf_prop': end_conf_prop
-            }
+            out_dict = {
+                    'loc': loc,
+                    'conf': conf,
+                    'priors': priors,
+                    'prop_loc': prop_loc,
+                    'prop_conf': prop_conf,
+                    'center': center,
+                    'start': start,
+                    'end': end,
+                    'start_loc_prop': start_loc_prop,
+                    'end_loc_prop': end_loc_prop,
+                    'start_conf_prop': start_conf_prop,
+                    'end_conf_prop': end_conf_prop
+                }
+            if self.use_edl:
+                unct = self.compute_uncertainty(conf)
+                prop_unct = self.compute_uncertainty(prop_conf)
+                out_dict.update({'unct': unct, 'prop_unct': prop_unct})
+            return out_dict
+
+    def compute_uncertainty(self, logit):
+        alpha = self.evidence_func(logit) + 1  # alpha = e + 1
+        uncertainty = num_classes / alpha.sum(-1)  # u = K / S
+        return uncertainty
+
+    def evidence_func(self, logit):
+        if self.evidence == 'relu':
+            return F.relu(logit)
+
+        if self.evidence == 'exp':
+            return torch.exp(torch.clamp(logit, -10, 10))
+
+        if self.evidence == 'softplus':
+            return F.softplus(logit)
 
 
 def test_inference(repeats=3, clip_frames=256):

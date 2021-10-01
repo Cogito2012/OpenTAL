@@ -130,6 +130,7 @@ def softnms_v2(segments, sigma=0.5, top_k=1000, score_threshold=0.001):
     tstart = segments[:, 0]
     tend = segments[:, 1]
     tscore = segments[:, 2]
+    tunct = segments[:, 3]
     done_mask = tscore < -1  # set all to False
     undone_mask = tscore >= score_threshold
     while undone_mask.sum() > 1 and done_mask.sum() < top_k:
@@ -153,7 +154,7 @@ def softnms_v2(segments, sigma=0.5, top_k=1000, score_threshold=0.001):
         tscore[undone_mask] *= scales
         undone_mask[tscore < score_threshold] = False
     count = done_mask.sum()
-    segments = torch.stack([tstart[done_mask], tend[done_mask], tscore[done_mask]], -1)
+    segments = torch.stack([tstart[done_mask], tend[done_mask], tscore[done_mask], tunct[done_mask]], -1)
     return segments, count
 
 

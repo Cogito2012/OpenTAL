@@ -31,7 +31,7 @@ training:
   weight_decay: 1e-3
   max_epoch: 16
   focal_loss: true
-  checkpoint_path: ./models/thumos14/split_{id:d}/
+  checkpoint_path: ./models/thumos14/default/split_{id:d}/
   random_seed: 2020
 
 testing:
@@ -39,6 +39,6 @@ testing:
   top_k: 5000
   nms_thresh: 0.5
   nms_sigma: 0.5
-  checkpoint_path: ./models/thumos14/split_{id:d}/checkpoint-latest.ckpt
-  output_path: ./output/split_{id:d}
+  checkpoint_path: ./models/thumos14/default/split_{id:d}/checkpoint-latest.ckpt
+  output_path: ./output/default/split_{id:d}
   output_json: detection_results.json

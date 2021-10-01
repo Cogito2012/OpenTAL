@@ -30,6 +30,7 @@ def get_config():
 
     parser.add_argument('--open_set', action='store_true')
     parser.add_argument('--split', type=int, choices=[0, 1, 2, 3, 4], default=0)
+    parser.add_argument('--ood_scoring', type=str, default='confidence', choices=['uncertainty', 'confidence'])
 
     args = parser.parse_args()
 
@@ -62,6 +63,7 @@ def get_config():
     data['ngpu'] = args.ngpu
     data['testing']['fusion'] = args.fusion
     data['testing']['split'] = args.split
+    data['testing']['ood_scoring'] = args.ood_scoring
     if args.nms_thresh is not None:
         data['testing']['nms_thresh'] = args.nms_thresh
     if args.nms_sigma is not None:

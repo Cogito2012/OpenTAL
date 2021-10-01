@@ -1,7 +1,7 @@
 #!/bin/bash
 
 pwd_dir=$pwd
-cd ../
+cd ../../
 
 source activate afsd
 
@@ -10,12 +10,12 @@ ALL_SPLITS="0 1 2 4"
 
 for SPLIT in ${ALL_SPLITS}
 do
-    PRED_FILE=output/split_${SPLIT}/thumos14_open_rgb.json
+    PRED_FILE=output/edl_15kc/split_${SPLIT}/thumos14_open_rgb.json
     if [ ! -f $PRED_FILE ]; then
         # run RGB model
         echo "Test the RGB model on Thumos14 Open Set (Split=${SPLIT}):"
         CUDA_VISIBLE_DEVICES=${GPU_ID} python AFSD/thumos14/test.py \
-            configs/thumos14_open.yaml \
+            configs/thumos14_open_edl_15kc.yaml \
             --open_set \
             --split=${SPLIT} \
             --output_json=thumos14_open_rgb.json 
@@ -24,16 +24,17 @@ do
     fi
 done
 
-MODEL_OUTPUT=output/split_{id:d}/thumos14_open_rgb.json
+MODEL_OUTPUT=output/edl_15kc/split_{id:d}/thumos14_open_rgb.json
 CLS_IDX_KNOWN=datasets/thumos14/annotations_open/split_{id:d}/Class_Index_Known.txt
-TRAINSET_RESULT=output/split_{id:d}/thumos14_open_trainset.json
+TRAINSET_RESULT=output/edl_15kc/split_{id:d}/thumos14_open_trainset.json
 
 echo -e "\nClosed Set Evaluation (15 Classes)"
 python AFSD/thumos14/eval_open.py \
     ${MODEL_OUTPUT} \
     datasets/thumos14/annotations_open/split_{id:d}/known_gt.json \
     --cls_idx_known ${CLS_IDX_KNOWN} \
-    --all_splits ${ALL_SPLITS}
+    --all_splits ${ALL_SPLITS} \
+    --ood_scoring uncertainty
 
 echo -e "\nOpen Set Evaluation (15+1 Classes)"
 python AFSD/thumos14/eval_open.py \
@@ -42,7 +43,8 @@ python AFSD/thumos14/eval_open.py \
     --cls_idx_known ${CLS_IDX_KNOWN} \
     --open_set \
     --trainset_result ${TRAINSET_RESULT} \
-    --all_splits ${ALL_SPLITS}
+    --all_splits ${ALL_SPLITS} \
+    --ood_scoring uncertainty
 
 cd $pwd_dir
 echo "Experiments finished!"

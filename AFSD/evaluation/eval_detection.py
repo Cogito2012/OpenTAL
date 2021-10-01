@@ -29,6 +29,7 @@ class ANETdetection(object):
                  prediction_fields=PREDICTION_FIELDS,
                  tiou_thresholds=np.linspace(0.5, 0.95, 10),
                  ood_threshold=1.0, 
+                 ood_scoring='confidence',
                  subset='validation', 
                  openset=False,
                  verbose=False, 
@@ -40,6 +41,7 @@ class ANETdetection(object):
         self.subset = subset
         self.tiou_thresholds = tiou_thresholds
         self.ood_threshold = ood_threshold
+        self.ood_scoring = ood_scoring
         self.openset = openset
         self.verbose = verbose
         self.gt_fields = ground_truth_fields
@@ -159,8 +161,9 @@ class ANETdetection(object):
             for result in v:
                 if result['label'] not in self.activity_index:
                     continue
-                if self.openset and result['score'] < self.ood_threshold:
-                    label = self.activity_index['__unknown__']
+                res_score = 1 - result['uncertainty'] if self.ood_scoring == 'uncertainty' else result['score']
+                if self.openset and res_score < self.ood_threshold:
+                    label = self.activity_index['__unknown__']  # reject the unknown
                 else:
                     label = self.activity_index[result['label']]
                 video_lst.append(videoid)
@@ -528,9 +531,22 @@ def compute_wilderness_impact(ground_truth_all, prediction_all, video_list, know
     fp_k2u += fp_bg2u
     fp_k2k += fp_bg2k
 
-    tp_k2k_sum = np.sum(tp_k2k, axis=-1).astype(np.float)
-    fp_u2k_sum = np.sum(fp_u2k, axis=-1).astype(np.float)
-    fp_k2k_sum = np.sum(fp_k2k, axis=-1).astype(np.float)
-    wi = fp_u2k_sum / (tp_k2k_sum + fp_k2k_sum + 1e-6)
+    # impact on recall ratio
+    tp_u2u_cumsum = np.cumsum(tp_u2u, axis=-1).astype(np.float)  # T x N
+    recall_ratio_cumsum = (num_gt[0] - tp_u2u_cumsum) / num_gt[1:].sum()   # T x N
+    # impact on precision ratio
+    tp_k2k_cumsum = np.cumsum(tp_k2k, axis=-1).astype(np.float)  # T x K x N
+    fp_u2k_cumsum = np.cumsum(fp_u2k, axis=-1).astype(np.float)  # T x K x N
+    fp_k2k_cumsum = np.cumsum(fp_k2k, axis=-1).astype(np.float)  # T x K x N
+    precision_ratio_cumsum = fp_u2k_cumsum / (tp_k2k_cumsum + fp_k2k_cumsum + 1e-6)
+
+    for tidx in range(len(tiou_thresholds)):
+        for cidx in range(len(known_classes)):
+            wi[tidx, cidx] = interpolated_prec_rec(precision_ratio_cumsum[tidx, cidx, :], recall_ratio_cumsum[tidx, :])
+
+    # tp_k2k_sum = np.sum(tp_k2k, axis=-1).astype(np.float)
+    # fp_u2k_sum = np.sum(fp_u2k, axis=-1).astype(np.float)
+    # fp_k2k_sum = np.sum(fp_k2k, axis=-1).astype(np.float)
+    # wi = fp_u2k_sum / (tp_k2k_sum + fp_k2k_sum + 1e-6)
 
     return wi, stats

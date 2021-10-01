@@ -1,7 +1,7 @@
 #!/bin/bash
 
 pwd_dir=$pwd
-cd ../
+cd ../../
 
 source activate afsd
 
@@ -10,14 +10,15 @@ ALL_SPLITS="0 1 2 4"
 
 for SPLIT in ${ALL_SPLITS}
 do
-    PRED_FILE=output/split_${SPLIT}/thumos14_open_trainset.json
+    PRED_FILE=output/edl_15kc/split_${SPLIT}/thumos14_open_trainset.json
     if [ ! -f $PRED_FILE ]; then
         # run RGB model
         echo "Threshold the RGB model on Thumos14 Open Set (Split=${SPLIT}):"
         CUDA_VISIBLE_DEVICES=${GPU_ID} python AFSD/thumos14/threshold.py \
-            configs/thumos14_open.yaml \
+            configs/thumos14_open_edl_15kc.yaml \
             --open_set \
             --split=${SPLIT} \
+            --ood_scoring uncertainty \
             --output_json=thumos14_open_trainset.json 
     else
         echo "Result file exists! ${PRED_FILE}"

@@ -7,7 +7,7 @@ import json
 from AFSD.common import videotransforms
 from AFSD.common.thumos_dataset import get_video_info, get_class_index_map
 from AFSD.thumos14.BDNet import BDNet
-from test import get_offsets, prepare_data, prepare_clip, parse_output, decode_predictions, filtering, get_video_detections
+from test import get_offsets, prepare_data, prepare_clip, parse_output, decode_predictions, filtering, get_video_detections, get_path
 from AFSD.common.config import config
 
 
@@ -20,6 +20,8 @@ def get_basic_config(config):
     cfg.nms_sigma = config['testing']['nms_sigma']
     cfg.clip_length = config['dataset']['testing']['clip_length']
     cfg.stride = config['dataset']['testing']['clip_stride']
+    cfg.use_edl = config['model']['use_edl'] if 'use_edl' in config['model'] else False
+    cfg.scoring = config['testing']['ood_scoring']
 
     cfg.json_name = config['testing']['output_json']
     cfg.output_path = config['testing']['output_path']
@@ -38,12 +40,12 @@ def get_basic_config(config):
 def build_model(fusion=False):
     net, flow_net = None, None
     if fusion:
-        rgb_net = BDNet(in_channels=3, training=False)
-        flow_net = BDNet(in_channels=2, training=False)
-        rgb_checkpoint_path = config['testing'].get('rgb_checkpoint_path',
-                                            './models/thumos14/checkpoint-15.ckpt')
-        flow_checkpoint_path = config['testing'].get('flow_checkpoint_path',
-                                             './models/thumos14_flow/checkpoint-16.ckpt')
+        rgb_net = BDNet(in_channels=3, training=False, use_edl=cfg.use_edl)
+        flow_net = BDNet(in_channels=2, training=False, use_edl=cfg.use_edl)
+        rgb_checkpoint_path = get_path(config['testing'].get('rgb_checkpoint_path',
+                                            './models/thumos14/checkpoint-15.ckpt'))
+        flow_checkpoint_path = get_path(config['testing'].get('flow_checkpoint_path',
+                                             './models/thumos14_flow/checkpoint-16.ckpt'))
         rgb_net.load_state_dict(torch.load(rgb_checkpoint_path))
         flow_net.load_state_dict(torch.load(flow_checkpoint_path))
         rgb_net.eval().cuda()
@@ -51,8 +53,8 @@ def build_model(fusion=False):
         net = rgb_net
     else:
         net = BDNet(in_channels=config['model']['in_channels'],
-                    training=False)
-        checkpoint_path = config['testing']['checkpoint_path']
+                    training=False, use_edl=cfg.use_edl)
+        checkpoint_path = get_path(config['testing']['checkpoint_path'])
         net.load_state_dict(torch.load(checkpoint_path))
         net.eval().cuda()
     return net, flow_net
@@ -88,12 +90,12 @@ def thresholding(cfg, output_file):
                 output_dict = net(clip)
                 flow_output_dict = flow_net(flow_clip) if cfg.fusion else None
 
-            loc, conf, prop_loc, prop_conf, center, priors = parse_output(output_dict, flow_output_dict, fusion=cfg.fusion)
-            decoded_segments, conf_scores = decode_predictions(loc, prop_loc, priors, conf, prop_conf, \
-                                                                center, offset, sample_fps, cfg.clip_length, cfg.num_classes, score_func=nn.Softmax(dim=-1))
+            loc, conf, prop_loc, prop_conf, center, priors, unct, prop_unct = parse_output(output_dict, flow_output_dict, fusion=cfg.fusion, use_edl=cfg.use_edl)
+            decoded_segments, conf_scores, uncertainty = decode_predictions(loc, prop_loc, priors, conf, prop_conf, unct, prop_unct, \
+                                                                center, offset, sample_fps, cfg.clip_length, cfg.num_classes, score_func=nn.Softmax(dim=-1), use_edl=cfg.use_edl)
             # filtering out clip-level predictions with low confidence
             for cl in range(1, cfg.num_classes):
-                segments = filtering(decoded_segments, conf_scores[cl], cfg.conf_thresh)
+                segments = filtering(decoded_segments, conf_scores[cl], uncertainty, cfg.conf_thresh)
                 if segments is None:
                     continue
                 output[cl].append(segments)
@@ -105,7 +107,8 @@ def thresholding(cfg, output_file):
     all_scores = []
     for vid, proposal_list in result_dict.items():
         for prop in proposal_list:
-            all_scores.append(prop['score'])
+            ood_score = 1 - prop['uncertainty'] if cfg.scoring == 'uncertainty' else prop['score']
+            all_scores.append(ood_score)
     score_sorted = np.sort(all_scores)  # sort the confidence score in an increasing order
     N = len(all_scores)
     topK = N - int(N * 0.95)

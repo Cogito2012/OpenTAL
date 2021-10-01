@@ -11,15 +11,25 @@ from AFSD.common.segment_utils import softnms_v2
 from AFSD.common.config import config
 
 
+def get_path(input_path):
+    if os.path.lexists(input_path):
+        fullpath = os.path.realpath(input_path) if os.path.islink(input_path) else input_path
+        real_name = fullpath.split('/')[-1]
+        real_full_path = os.path.join(os.path.dirname(input_path), real_name)
+    else:
+        raise FileNotFoundError
+    return real_full_path
+
+
 def build_model(fusion=False):
     net, flow_net = None, None
     if fusion:
-        rgb_net = BDNet(in_channels=3, training=False)
-        flow_net = BDNet(in_channels=2, training=False)
-        rgb_checkpoint_path = config['testing'].get('rgb_checkpoint_path',
-                                            './models/thumos14/checkpoint-15.ckpt')
-        flow_checkpoint_path = config['testing'].get('flow_checkpoint_path',
-                                             './models/thumos14_flow/checkpoint-16.ckpt')
+        rgb_net = BDNet(in_channels=3, training=False, use_edl=cfg.use_edl)
+        flow_net = BDNet(in_channels=2, training=False, use_edl=cfg.use_edl)
+        rgb_checkpoint_path = get_path(config['testing'].get('rgb_checkpoint_path',
+                                            './models/thumos14/checkpoint-15.ckpt'))
+        flow_checkpoint_path = get_path(config['testing'].get('flow_checkpoint_path',
+                                             './models/thumos14_flow/checkpoint-16.ckpt'))
         rgb_net.load_state_dict(torch.load(rgb_checkpoint_path))
         flow_net.load_state_dict(torch.load(flow_checkpoint_path))
         rgb_net.eval().cuda()
@@ -27,8 +37,8 @@ def build_model(fusion=False):
         net = rgb_net
     else:
         net = BDNet(in_channels=config['model']['in_channels'],
-                    training=False)
-        checkpoint_path = config['testing']['checkpoint_path']
+                    training=False, use_edl=cfg.use_edl)
+        checkpoint_path = get_path(config['testing']['checkpoint_path'])
         net.load_state_dict(torch.load(checkpoint_path))
         net.eval().cuda()
     return net, flow_net
@@ -65,25 +75,30 @@ def prepare_clip(data, offset, clip_length):
     return clip
 
 
-def parse_output(output_dict, flow_output_dict=None, fusion=False):
+def parse_output(output_dict, flow_output_dict=None, fusion=False, use_edl=False):
     loc, conf, priors = output_dict['loc'][0], output_dict['conf'][0], output_dict['priors']
     prop_loc, prop_conf = output_dict['prop_loc'][0], output_dict['prop_conf'][0]
+    unct = output_dict['unct'][0] if use_edl else None
+    prop_unct = output_dict['prop_unct'][0] if use_edl else None
     center = output_dict['center'][0]
     if fusion:
         flow_loc, flow_conf, priors = flow_output_dict['loc'][0], flow_output_dict['conf'][0], flow_output_dict['priors']
         flow_prop_loc, flow_prop_conf = flow_output_dict['prop_loc'][0], flow_output_dict['prop_conf'][0]
+        flow_prop_unct, flow_unct = flow_output_dict['prop_unct'][0], flow_output_dict['unct'][0]
         flow_center = flow_output_dict['center'][0]
         # fusion by average
         loc = (loc + flow_loc) / 2.0
         prop_loc = (prop_loc + flow_prop_loc) / 2.0
         conf = (conf + flow_conf) / 2.0
         prop_conf = (prop_conf + flow_prop_conf) / 2.0
+        unct = (unct + flow_unct) / 2.0
+        prop_unct = (prop_unct + flow_prop_unct) / 2.0
         center = (center + flow_center) / 2.0
-    return loc, conf, prop_loc, prop_conf, center, priors
+    return loc, conf, prop_loc, prop_conf, center, priors, unct, prop_unct
 
 
-def decode_predictions(loc, prop_loc, priors, conf, prop_conf, center, \
-                        offset, sample_fps, clip_length, num_classes, score_func=nn.Softmax(dim=-1)):
+def decode_predictions(loc, prop_loc, priors, conf, prop_conf, unct, prop_unct, center, \
+                        offset, sample_fps, clip_length, num_classes, score_func=nn.Softmax(dim=-1), use_edl=False):
     pre_loc_w = loc[:, :1] + loc[:, 1:]
     loc = 0.5 * pre_loc_w * prop_loc + loc
     segments = torch.cat(
@@ -91,6 +106,9 @@ def decode_predictions(loc, prop_loc, priors, conf, prop_conf, center, \
             priors[:, :1] * clip_length + loc[:, 1:]], dim=-1)
     segments.clamp_(min=0, max=clip_length)
     decoded_segments = (segments + offset) / sample_fps
+
+    # compute uncertainty
+    uncertainty = (unct + prop_unct) / 2.0 if use_edl else None
 
     conf = score_func(conf)
     prop_conf = score_func(prop_conf)
@@ -100,23 +118,26 @@ def decode_predictions(loc, prop_loc, priors, conf, prop_conf, center, \
     conf = conf * center
     conf = conf.view(-1, num_classes).transpose(1, 0)
     conf_scores = conf.clone()
-    return decoded_segments, conf_scores
+    return decoded_segments, conf_scores, uncertainty
 
 
-def filtering(decoded_segments, conf_score_cls, conf_thresh):
+def filtering(decoded_segments, conf_score_cls, uncertainty, conf_thresh):
     c_mask = conf_score_cls > conf_thresh
     scores = conf_score_cls[c_mask]
     if scores.size(0) == 0:
         return None
+    # masking segments
     l_mask = c_mask.unsqueeze(1).expand_as(decoded_segments)
     segments = decoded_segments[l_mask].view(-1, 2)
+    # masking uncertainties
+    uncertain_scores = uncertainty[c_mask]
     # decode to original time
-    segments = torch.cat([segments, scores.unsqueeze(1)], -1)
+    segments = torch.cat([segments, scores.unsqueeze(1), uncertain_scores.unsqueeze(1)], -1)
     return segments
 
 
 def get_video_detections(output, idx_to_class, num_classes, top_k, nms_sigma):
-    res = torch.zeros(num_classes, top_k, 3)
+    res = torch.zeros(num_classes, top_k, 4)
     sum_count = 0
     for cl in range(1, num_classes):
         if len(output[cl]) == 0:
@@ -127,13 +148,13 @@ def get_video_detections(output, idx_to_class, num_classes, top_k, nms_sigma):
         sum_count += count
 
     sum_count = min(sum_count, top_k)
-    flt = res.contiguous().view(-1, 3)
-    flt = flt.view(num_classes, -1, 3)
+    flt = res.contiguous().view(-1, 4)
+    flt = flt.view(num_classes, -1, 4)
     proposal_list = []
     for cl in range(1, num_classes):
         class_name = idx_to_class[cl]
         tmp = flt[cl].contiguous()
-        tmp = tmp[(tmp[:, 2] > 0).unsqueeze(-1).expand_as(tmp)].view(-1, 3)
+        tmp = tmp[(tmp[:, 2] > 0).unsqueeze(-1).expand_as(tmp)].view(-1, 4)
         if tmp.size(0) == 0:
             continue
         tmp = tmp.detach().cpu().numpy()
@@ -143,6 +164,7 @@ def get_video_detections(output, idx_to_class, num_classes, top_k, nms_sigma):
             tmp_proposal['score'] = float(tmp[i, 2])
             tmp_proposal['segment'] = [float(tmp[i, 0]),
                                         float(tmp[i, 1])]
+            tmp_proposal['uncertainty'] = float(tmp[i, 3])
             proposal_list.append(tmp_proposal)
     return proposal_list
 
@@ -177,12 +199,12 @@ def test(cfg):
                 output_dict = net(clip)
                 flow_output_dict = flow_net(flow_clip) if cfg.fusion else None
 
-            loc, conf, prop_loc, prop_conf, center, priors = parse_output(output_dict, flow_output_dict, fusion=cfg.fusion)
-            decoded_segments, conf_scores = decode_predictions(loc, prop_loc, priors, conf, prop_conf, \
-                                                                center, offset, sample_fps, cfg.clip_length, cfg.num_classes, score_func=nn.Softmax(dim=-1))
+            loc, conf, prop_loc, prop_conf, center, priors, unct, prop_unct = parse_output(output_dict, flow_output_dict, fusion=cfg.fusion, use_edl=cfg.use_edl)
+            decoded_segments, conf_scores, uncertainty = decode_predictions(loc, prop_loc, priors, conf, prop_conf, unct, prop_unct, \
+                                                                center, offset, sample_fps, cfg.clip_length, cfg.num_classes, score_func=nn.Softmax(dim=-1), use_edl=cfg.use_edl)
             # filtering out clip-level predictions with low confidence
             for cl in range(1, cfg.num_classes):
-                segments = filtering(decoded_segments, conf_scores[cl], cfg.conf_thresh)
+                segments = filtering(decoded_segments, conf_scores[cl], uncertainty, cfg.conf_thresh)
                 if segments is None:
                     continue
                 output[cl].append(segments)
@@ -204,6 +226,7 @@ def get_basic_config(config):
     cfg.nms_sigma = config['testing']['nms_sigma']
     cfg.clip_length = config['dataset']['testing']['clip_length']
     cfg.stride = config['dataset']['testing']['clip_stride']
+    cfg.use_edl = config['model']['use_edl'] if 'use_edl' in config['model'] else False
 
     cfg.json_name = config['testing']['output_json']
     cfg.output_path = config['testing']['output_path']

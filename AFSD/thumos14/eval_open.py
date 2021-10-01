@@ -10,6 +10,7 @@ parser.add_argument('gt_json', type=str, default='datasets/thumos14/annotations/
 parser.add_argument('--cls_idx_known', type=str)
 parser.add_argument('--all_splits', nargs='+', type=int)
 parser.add_argument('--open_set', action='store_true')
+parser.add_argument('--ood_scoring', type=str, default='confidence', choices=['uncertainty', 'confidence'])
 parser.add_argument('--trainset_result', type=str)
 args = parser.parse_args()
 
@@ -41,6 +42,7 @@ for split in args.all_splits:
         subset='test', 
         openset=args.open_set,
         ood_threshold=threshold,
+        ood_scoring=args.ood_scoring,
         tiou_thresholds=tious,
         verbose=False)
     print(f'Running the evaluation on split {split} with threshold {threshold:.12f}...')

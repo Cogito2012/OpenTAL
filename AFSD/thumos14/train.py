@@ -257,8 +257,9 @@ if __name__ == '__main__':
     """
     Setup model
     """
+    use_edl = config['model']['use_edl'] if 'use_edl' in config['model'] else False
     net = BDNet(in_channels=config['model']['in_channels'],
-                backbone_model=config['model']['backbone_model'])
+                backbone_model=config['model']['backbone_model'], use_edl=use_edl)
     net = nn.DataParallel(net, device_ids=[0]).cuda()
 
     """
