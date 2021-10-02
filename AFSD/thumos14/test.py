@@ -108,7 +108,7 @@ def decode_predictions(loc, prop_loc, priors, conf, prop_conf, unct, prop_unct, 
     decoded_segments = (segments + offset) / sample_fps
 
     # compute uncertainty
-    uncertainty = (unct + prop_unct) / 2.0 if use_edl else None
+    uncertainty = (unct + prop_unct) / 2.0 if use_edl else torch.zeros(conf.size(0)).to(conf.device)
 
     conf = score_func(conf)
     prop_conf = score_func(prop_conf)

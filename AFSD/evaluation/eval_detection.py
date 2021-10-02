@@ -533,20 +533,15 @@ def compute_wilderness_impact(ground_truth_all, prediction_all, video_list, know
 
     # impact on recall ratio
     tp_u2u_cumsum = np.cumsum(tp_u2u, axis=-1).astype(np.float)  # T x N
-    recall_ratio_cumsum = (num_gt[0] - tp_u2u_cumsum) / num_gt[1:].sum()   # T x N
+    recall_ratio_cumsum = num_gt[1:].sum() / ( num_gt[1:].sum() + num_gt[0] - tp_u2u_cumsum)  # T x N
     # impact on precision ratio
     tp_k2k_cumsum = np.cumsum(tp_k2k, axis=-1).astype(np.float)  # T x K x N
     fp_u2k_cumsum = np.cumsum(fp_u2k, axis=-1).astype(np.float)  # T x K x N
     fp_k2k_cumsum = np.cumsum(fp_k2k, axis=-1).astype(np.float)  # T x K x N
-    precision_ratio_cumsum = fp_u2k_cumsum / (tp_k2k_cumsum + fp_k2k_cumsum + 1e-6)
+    precision_ratio_cumsum = (tp_k2k_cumsum + fp_k2k_cumsum) / (tp_k2k_cumsum + fp_k2k_cumsum + fp_u2k_cumsum + 1e-6)
 
     for tidx in range(len(tiou_thresholds)):
         for cidx in range(len(known_classes)):
             wi[tidx, cidx] = interpolated_prec_rec(precision_ratio_cumsum[tidx, cidx, :], recall_ratio_cumsum[tidx, :])
-
-    # tp_k2k_sum = np.sum(tp_k2k, axis=-1).astype(np.float)
-    # fp_u2k_sum = np.sum(fp_u2k, axis=-1).astype(np.float)
-    # fp_k2k_sum = np.sum(fp_k2k, axis=-1).astype(np.float)
-    # wi = fp_u2k_sum / (tp_k2k_sum + fp_k2k_sum + 1e-6)
 
     return wi, stats

@@ -1,4 +1,4 @@
-import os
+import os, sys
 import pickle
 import matplotlib.pyplot as plt
 import numpy as np
@@ -8,10 +8,10 @@ def get_mean_stds(data):
     return np.mean(data), np.std(data) / np.sqrt(len(data)) * 1.96
 
 if __name__ == '__main__':
-    split = 0
+    split, exp_tag = sys.argv[1], sys.argv[2]
     tious = [0.3, 0.4, 0.5, 0.6, 0.7]
 
-    stat_file = os.path.join(f'../output/split_{split}/open_stats.pkl')
+    stat_file = os.path.join(f'../output/{exp_tag}/split_{split}/open_stats.pkl')
     with open(stat_file, 'rb') as f:
         stats = pickle.load(f)
 
@@ -41,7 +41,7 @@ if __name__ == '__main__':
     ax.legend(fontsize=fontsize)
     plt.yticks(fontsize=fontsize)
     plt.tight_layout()
-    plt.savefig(f'../output/split_{split}/stats.png')
+    plt.savefig(f'../output/{exp_tag}/split_{split}/stats.png')
     # plt.close()
 
 
@@ -61,8 +61,6 @@ if __name__ == '__main__':
         mean_scores[i, 6], std_scores[i, 6] = get_mean_stds(all_scores[stats['fp_bg2k'][i].sum(axis=0) > 0])
 
         h = ax.bar(xrng + (i-2) * width, mean_scores[i], yerr=std_scores[i], width=width, label=f'tIoU={iou}', align='center', alpha=0.5, ecolor='black', color=c)
-        # if i == len(tious) - 1:
-        #     ax.bar_label(h, padding=3)
         
     ax.set_ylabel('Confidence Scores of Segments', fontsize=fontsize)
     ax.set_xticks(xrng)
@@ -70,4 +68,4 @@ if __name__ == '__main__':
     ax.legend(fontsize=fontsize)
     plt.yticks(fontsize=fontsize)
     plt.tight_layout()
-    plt.savefig(f'../output/split_{split}/stats_scores.png')
+    plt.savefig(f'../output/{exp_tag}/split_{split}/stats_scores.png')
