@@ -11,6 +11,8 @@ from torch.utils.data import DataLoader
 from AFSD.thumos14.BDNet import BDNet
 from AFSD.thumos14.multisegment_loss import MultiSegmentLoss
 from AFSD.common.config import config
+from tensorboardX import SummaryWriter
+
 
 batch_size = config['training']['batch_size']
 learning_rate = config['training']['learning_rate']
@@ -27,6 +29,8 @@ random_seed = config['training']['random_seed']
 train_state_path = os.path.join(checkpoint_path, 'training')
 if not os.path.exists(train_state_path):
     os.makedirs(train_state_path)
+tensorboard_path = os.path.join(checkpoint_path, 'tensorboard')
+os.makedirs(tensorboard_path, exist_ok=True)
 
 resume = config['training']['resume']
 config['training']['ssl'] = 0.1
@@ -215,6 +219,17 @@ def run_one_epoch(epoch, net, optimizer, data_loader, epoch_step_num, training=T
                 cost.backward()
                 optimizer.step()
 
+            # record the loss in tensorboards
+            cur_iter = i * epoch_step_num + n_iter
+            tb_writer.add_scalars(f'train_loss/coarse/loss_loc', {'loss_loc': loss_l.mean().item()}, cur_iter)
+            tb_writer.add_scalars(f'train_loss/coarse/loss_cls', {'loss_cls': loss_c.mean().item()}, cur_iter)
+            tb_writer.add_scalars(f'train_loss/refined/loss_loc', {'loss_loc': loss_prop_l.mean().item()}, cur_iter)
+            tb_writer.add_scalars(f'train_loss/refined/loss_cls', {'loss_cls': loss_prop_c.mean().item()}, cur_iter)
+            tb_writer.add_scalars(f'train_loss/regularizer/loss_quality', {'loss_q': loss_ct.mean().item()}, cur_iter)
+            if flags[0]:
+                tb_writer.add_scalars(f'train_loss/regularizer/loss_trip', {'loss_trip': loss_trip.mean().item()}, cur_iter)
+            tb_writer.add_scalars(f'train_loss/loss_total', {'loss_total': cost.mean().item()}, cur_iter)
+
             loss_loc_val += loss_l.cpu().detach().numpy()
             loss_conf_val += loss_c.cpu().detach().numpy()
             loss_prop_l_val += loss_prop_l.cpu().detach().numpy()
@@ -292,6 +307,11 @@ if __name__ == '__main__':
                                    num_workers=4, worker_init_fn=worker_init_fn,
                                    collate_fn=detection_collate, pin_memory=True, drop_last=True)
     epoch_step_num = len(train_dataset) // batch_size
+    """
+    Setup tensorboard writer
+    """
+    # tensorboard logging
+    tb_writer = SummaryWriter(tensorboard_path)
 
     """
     Start training
