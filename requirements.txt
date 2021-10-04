@@ -7,3 +7,5 @@ pandas
 opencv-python
 PyYaml
 joblib
+tensorboardX
+tensorboard

@@ -86,8 +86,15 @@ class EvidenceLoss(nn.Module):
         self.annealing_step = cfg['anneal_step']
         self.loss_type = cfg['loss_type']
         self.evidence = cfg['evidence']
+        self.with_focal = cfg['with_focal']
         self.eps = 1e-10
         self.train_status = {'epoch': 0, 'total_epoch': 0}
+
+        if self.with_focal:
+            alpha = torch.ones((self.num_cls)) * (1 - cfg['alpha'])  # foreground class
+            alpha[0] = cfg['alpha']  # background class
+            self.alpha = alpha
+            self.gamma = cfg['gamma']
 
     def forward(self, logit, target):
         """ logit, shape=(N, K+1)
@@ -191,8 +198,16 @@ class EvidenceLoss(nn.Module):
         """
         losses = {}
         S = torch.sum(alpha, dim=1, keepdim=True)  # (B, 1)
-        A = torch.mean(torch.sum(y * (func(S) - func(alpha)), dim=1))
-        losses.update({'cls_loss': A})
+        if self.with_focal:
+            if self.alpha.device != alpha.device:
+                self.alpha = self.alpha.to(alpha.device)
+            pred_scores, pred_cls = torch.max(alpha / S, 1)
+            alpha_class = self.alpha.gather(0, target.view(-1))  # (N,)
+            weight = alpha_class * torch.pow(torch.sub(1.0, pred_scores), self.gamma)  # (N,)
+            cls_loss = torch.mean(torch.sum(y * weight.unsqueeze(-1) * (func(S) - func(alpha)), dim=1))
+        else:
+            cls_loss = torch.mean(torch.sum(y * (func(S) - func(alpha)), dim=1))
+        losses.update({'cls_loss': cls_loss})
 
         if self.with_kldiv:
             kl_alpha = (alpha - 1) * (1 - y) + 1
