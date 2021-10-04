@@ -11,7 +11,7 @@ SPLIT=$2
 # run RGB model
 echo "Train the RGB model on Thumos14 Closed Set:"
 CUDA_VISIBLE_DEVICES=${GPU_ID} python AFSD/thumos14/train.py \
-    configs/thumos14_open_edl_15kc.yaml \
+    configs/thumos14_open_efl_15kc.yaml \
     --lw=10 \
     --cw=1 \
     --piou=0.5 \

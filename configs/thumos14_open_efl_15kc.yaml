@@ -35,7 +35,7 @@ training:
   focal_loss: false
   edl_loss: true
   edl_config:
-    with_kldiv: true
+    with_kldiv: false
     annealing: exp
     anneal_start: 0.01
     anneal_step: 2
@@ -44,7 +44,7 @@ training:
     with_focal: true
     alpha: 0.25
     gamma: 2
-  checkpoint_path: ./models/thumos14/eflkl_15kc/split_{id:d}/
+  checkpoint_path: ./models/thumos14/efl_15kc/split_{id:d}/
   random_seed: 2020
 
 testing:
@@ -52,6 +52,6 @@ testing:
   top_k: 5000
   nms_thresh: 0.5
   nms_sigma: 0.5
-  checkpoint_path: ./models/thumos14/eflkl_15kc/split_{id:d}/checkpoint-latest.ckpt
-  output_path: ./output/eflkl_15kc/split_{id:d}
+  checkpoint_path: ./models/thumos14/efl_15kc/split_{id:d}/checkpoint-latest.ckpt
+  output_path: ./output/efl_15kc/split_{id:d}
   output_json: detection_results.json
