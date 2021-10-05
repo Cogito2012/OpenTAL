@@ -42,7 +42,9 @@ class FocalLoss_Ori(nn.Module):
             raise TypeError('Not support alpha type, expect `int|float|list|tuple|torch.Tensor`')
 
     def forward(self, logit, target):
-
+        """ logit: softmax scores (N, K+1)
+            target: integeral labels (N, 1) \in [0,...,K]
+        """
         if logit.dim() > 2:
             # N,C,d1,d2 -> N,C,m (m=d1*d2*...)
             logit = logit.view(logit.size(0), logit.size(1), -1)
@@ -59,13 +61,13 @@ class FocalLoss_Ori(nn.Module):
         # pt = (one_hot_key * logit).sum(1) + epsilon
 
         # ----------memory saving way--------
-        pt = logit.gather(1, target).view(-1) + self.eps  # avoid apply
+        pt = logit.gather(1, target).view(-1) + self.eps  # avoid apply, (N,)
         logpt = pt.log()
 
         if self.alpha.device != logpt.device:
-            self.alpha = self.alpha.to(logpt.device)
+            self.alpha = self.alpha.to(logpt.device)  # (K+1,)
 
-        alpha_class = self.alpha.gather(0, target.view(-1))
+        alpha_class = self.alpha.gather(0, target.view(-1))  # (N,)
         logpt = alpha_class * logpt
         loss = -1 * torch.pow(torch.sub(1.0, pt), self.gamma) * logpt
 

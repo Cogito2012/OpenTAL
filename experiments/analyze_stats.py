@@ -4,22 +4,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def get_mean_stds(data):
-    return np.mean(data), np.std(data) / np.sqrt(len(data)) * 1.96
-
-if __name__ == '__main__':
-    split, exp_tag = sys.argv[1], sys.argv[2]
-    tious = [0.3, 0.4, 0.5, 0.6, 0.7]
-
-    stat_file = os.path.join(f'../output/{exp_tag}/split_{split}/open_stats.pkl')
-    with open(stat_file, 'rb') as f:
-        stats = pickle.load(f)
-
+def plot_stats(width=0.15, fontsize=18):
     Nums = np.zeros((len(tious), 7))
-    width = 0.15
-    fontsize = 18
-    items = ['$TP_{u2u}$', '$TP_{k2k}$', '$FP_{u2k}$', '$FP_{k2k}$', '$FP_{k2u}$', '$FP_{bg2u}$', '$FP_{bg2k}$']
-    colors = ['k', 'g', 'm', 'c', 'y']
     xrng = np.arange(len(items)) 
     fig, ax = plt.subplots(1,1, figsize=(8,5))
     for i, (iou, c) in enumerate(zip(tious, colors)):
@@ -42,9 +28,14 @@ if __name__ == '__main__':
     plt.yticks(fontsize=fontsize)
     plt.tight_layout()
     plt.savefig(f'../output/{exp_tag}/split_{split}/stats.png')
-    # plt.close()
 
 
+def get_mean_stds(data):
+    return np.mean(data), np.std(data) / np.sqrt(len(data)) * 1.96
+
+
+def plot_scores(width=0.15, fontsize=18):
+    xrng = np.arange(len(items)) 
     # score distribution
     fig, ax = plt.subplots(1,1, figsize=(8,5))
     all_scores = np.array(stats['scores'])
@@ -69,3 +60,51 @@ if __name__ == '__main__':
     plt.yticks(fontsize=fontsize)
     plt.tight_layout()
     plt.savefig(f'../output/{exp_tag}/split_{split}/stats_scores.png')
+
+
+def plot_max_tious(width=0.15, fontsize=18):
+    xrng = np.arange(len(items)) 
+    fig, ax = plt.subplots(1,1, figsize=(8,5))
+    all_max_tious = np.array(stats['max_tious'])
+
+    mean_ious = np.zeros((len(tious), 7))
+    std_ious = np.zeros((len(tious), 7))
+    for i, (iou, c) in enumerate(zip(tious, colors)):
+        mean_ious[i, 0], std_ious[i, 0] = get_mean_stds(all_max_tious[stats['tp_u2u'][i] > 0])
+        mean_ious[i, 1], std_ious[i, 1] = get_mean_stds(all_max_tious[stats['tp_k2k'][i].sum(axis=0) > 0])
+        mean_ious[i, 2], std_ious[i, 2] = get_mean_stds(all_max_tious[stats['fp_u2k'][i].sum(axis=0) > 0])
+        mean_ious[i, 3], std_ious[i, 3] = get_mean_stds(all_max_tious[stats['fp_k2k'][i].sum(axis=0) > 0])
+        mean_ious[i, 4], std_ious[i, 4] = get_mean_stds(all_max_tious[stats['fp_k2u'][i] > 0])
+        mean_ious[i, 5], std_ious[i, 5] = get_mean_stds(all_max_tious[stats['fp_bg2u'][i] > 0])
+        mean_ious[i, 6], std_ious[i, 6] = get_mean_stds(all_max_tious[stats['fp_bg2k'][i].sum(axis=0) > 0])
+
+        h = ax.bar(xrng + (i-2) * width, mean_ious[i], yerr=std_ious[i], width=width, label=f'tIoU={iou}', align='center', alpha=0.5, ecolor='black', color=c)
+        
+    ax.set_ylabel('Max tIoU values', fontsize=fontsize)
+    ax.set_xticks(xrng)
+    ax.set_xticklabels(items, fontsize=fontsize-3)
+    ax.legend(fontsize=fontsize)
+    plt.yticks(fontsize=fontsize)
+    plt.tight_layout()
+    plt.savefig(f'../output/{exp_tag}/split_{split}/stats_tiou.png')
+
+
+
+if __name__ == '__main__':
+    exp_tag = sys.argv[1]
+    split = '0'
+    tious = [0.3, 0.4, 0.5, 0.6, 0.7]
+
+    stat_file = os.path.join(f'../output/{exp_tag}/split_{split}/open_stats.pkl')
+    with open(stat_file, 'rb') as f:
+        stats = pickle.load(f)
+
+    items = ['$TP_{u2u}$', '$TP_{k2k}$', '$FP_{u2k}$', '$FP_{k2k}$', '$FP_{k2u}$', '$FP_{bg2u}$', '$FP_{bg2k}$']
+    colors = ['k', 'g', 'm', 'c', 'y']  # for 5 tIoU thresholds
+
+    plot_stats()
+
+    plot_scores()
+
+    plot_max_tious()
+

@@ -20,8 +20,10 @@ def get_config():
     parser.add_argument('--top_k', type=int)
     parser.add_argument('--output_json', type=str)
 
-    parser.add_argument('--lw', type=float, default=10.0)
-    parser.add_argument('--cw', type=float, default=1)
+    parser.add_argument('--lw', type=float, default=1.0)
+    parser.add_argument('--cw', type=float, default=10.0)
+    parser.add_argument('--ctw', type=float, default=1.0)
+    parser.add_argument('--ssl', type=float, default=0.1)
     parser.add_argument('--piou', type=float, default=0)
     parser.add_argument('--resume', type=int, default=0)
     parser.add_argument('--ngpu', type=int, default=1)
@@ -58,6 +60,8 @@ def get_config():
         data['training']['focal_loss'] = args.focal_loss
     data['training']['lw'] = args.lw
     data['training']['cw'] = args.cw
+    data['training']['ctw'] = args.ctw
+    data['training']['ssl'] = args.ssl
     data['training']['piou'] = args.piou
     data['training']['resume'] = args.resume
     data['ngpu'] = args.ngpu

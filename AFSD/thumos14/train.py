@@ -34,7 +34,6 @@ if config['testing']['split'] == 0:
     os.makedirs(tensorboard_path, exist_ok=True)
 
 resume = config['training']['resume']
-config['training']['ssl'] = 0.1
 
 
 def print_training_info():
@@ -45,6 +44,7 @@ def print_training_info():
     print('checkpoint path: ', checkpoint_path)
     print('loc weight: ', config['training']['lw'])
     print('cls weight: ', config['training']['cw'])
+    print('ctr weight: ', config['training']['ctw'])
     print('iou weight: ', config['training']['piou'])
     print('ssl weight: ', config['training']['ssl'])
     print('piou:', config['training']['piou'])
@@ -205,7 +205,7 @@ def run_one_epoch(epoch, net, optimizer, data_loader, epoch_step_num, training=T
             loss_c = loss_c * config['training']['cw']
             loss_prop_l = loss_prop_l * config['training']['lw']
             loss_prop_c = loss_prop_c * config['training']['cw']
-            loss_ct = loss_ct * config['training']['cw']
+            loss_ct = loss_ct * config['training']['ctw']
             cost = loss_l + loss_c + loss_prop_l + loss_prop_c + loss_ct + loss_start + loss_end
 
             if flags[0]:

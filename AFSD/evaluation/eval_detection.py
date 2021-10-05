@@ -473,6 +473,7 @@ def compute_wilderness_impact(ground_truth_all, prediction_all, video_list, know
             tiou_arr = segment_iou(this_pred[['t-start', 't-end']].values,
                                 ground_truth[['t-start', 't-end']].values)
             tiou_sorted_idx = tiou_arr.argsort()[::-1]  # tIoU in a decreasing order
+            all_max_tious.append(tiou_arr[tiou_sorted_idx[0]])
 
             label_pred = this_pred['label']
             for tidx, tiou_thr in enumerate(tiou_thresholds):
