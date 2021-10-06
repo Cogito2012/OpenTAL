@@ -7,7 +7,7 @@ source activate afsd
 
 GPU_ID=$1
 ALL_SPLITS="0 1 2 4"
-EXP_TAG="edl_15kc"
+EXP_TAG="edl_droput_15kc"
 
 for SPLIT in ${ALL_SPLITS}
 do

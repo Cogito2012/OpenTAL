@@ -25,6 +25,7 @@ model:
   freeze_bn_affine: true
   use_edl: true
   evidence: exp
+  dropout: 0.5
   backbone_model: ./models/i3d_models/rgb_imagenet.pt
 
 training:
@@ -35,16 +36,12 @@ training:
   focal_loss: false
   edl_loss: true
   edl_config:
-    with_kldiv: false
-    annealing: exp
-    anneal_start: 0.01
-    anneal_step: 2
     evidence: exp
     loss_type: log
     with_focal: false
     alpha: 0.25
     gamma: 2
-  checkpoint_path: ./models/thumos14/edl_15kc/split_{id:d}/
+  checkpoint_path: ./models/thumos14/edl_droput_15kc/split_{id:d}/
   random_seed: 2020
 
 testing:
@@ -52,6 +49,6 @@ testing:
   top_k: 5000
   nms_thresh: 0.5
   nms_sigma: 0.5
-  checkpoint_path: ./models/thumos14/edl_15kc/split_{id:d}/checkpoint-latest.ckpt
-  output_path: ./output/edl_15kc/split_{id:d}
+  checkpoint_path: ./models/thumos14/edl_droput_15kc/split_{id:d}/checkpoint-latest.ckpt
+  output_path: ./output/edl_droput_15kc/split_{id:d}
   output_json: detection_results.json

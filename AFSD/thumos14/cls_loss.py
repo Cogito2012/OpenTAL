@@ -82,16 +82,10 @@ class EvidenceLoss(nn.Module):
     def __init__(self, num_cls, cfg):
         super(EvidenceLoss, self).__init__()
         self.num_cls = num_cls
-        self.with_kldiv = cfg['with_kldiv']
-        self.annealing_method = cfg['annealing']
-        self.annealing_start = cfg['anneal_start']
-        self.annealing_step = cfg['anneal_step']
         self.loss_type = cfg['loss_type']
         self.evidence = cfg['evidence']
         self.with_focal = cfg['with_focal']
         self.eps = 1e-10
-        self.train_status = {'epoch': 0, 'total_epoch': 0}
-
         if self.with_focal:
             alpha = torch.ones((self.num_cls)) * (1 - cfg['alpha'])  # foreground class
             alpha[0] = cfg['alpha']  # background class
@@ -110,11 +104,6 @@ class EvidenceLoss(nn.Module):
         target = target.view(-1)  # [N,d1,d2,...]->[N*d1*d2*...,]
 
         out_dict = dict()
-        annealing_coef = 0.0
-        if self.with_kldiv:
-            # compute annealing coefficient 
-            annealing_coef = self.compute_annealing_coef(self.train_status['epoch'], self.train_status['total_epoch'])
-            out_dict.update({'annealing_coef': annealing_coef})
 
         # one-hot embedding for the target
         y = torch.eye(self.num_cls).to(logit.device, non_blocking=True)
@@ -125,7 +114,7 @@ class EvidenceLoss(nn.Module):
 
         # compute losses
         pred_alpha = self.evidence_func(logit) + 1  # (alpha = e + 1)
-        loss_out = loss(y, pred_alpha, annealing_coef=annealing_coef, func=func, target=target)
+        loss_out = loss(y, pred_alpha, func=func, target=target)
         out_dict.update(loss_out)
 
         # accumulate total loss
@@ -135,20 +124,6 @@ class EvidenceLoss(nn.Module):
                 total_loss += v
         out_dict.update({'total_loss': total_loss})
         return total_loss
-
-
-
-    def compute_annealing_coef(self, epoch_num, total_epoch):
-        # annealing coefficient
-        if self.annealing_method == 'step':
-            annealing_coef = torch.min(torch.tensor(
-                1.0, dtype=torch.float32), torch.tensor(epoch_num / self.annealing_step, dtype=torch.float32))
-        elif self.annealing_method == 'exp':
-            annealing_start = torch.tensor(self.annealing_start, dtype=torch.float32)
-            annealing_coef = annealing_start * torch.exp(-torch.log(annealing_start) / total_epoch * epoch_num)
-        else:
-            raise NotImplementedError
-        return annealing_coef
 
 
     def get_loss_func(self):
@@ -173,7 +148,7 @@ class EvidenceLoss(nn.Module):
             return F.softplus(logit)
         
 
-    def mse_loss(self, y, alpha, annealing_coef=0, func=None, target=None):
+    def mse_loss(self, y, alpha, func=None, target=None):
         """Used only for loss_type == 'mse'
         y: the one-hot labels (batchsize, num_classes)
         alpha: the predictions (batchsize, num_classes)
@@ -183,15 +158,10 @@ class EvidenceLoss(nn.Module):
         # compute loss by considering the temporal penalty
         loglikelihood_err, loglikelihood_var = self.loglikelihood_loss(y, alpha)
         losses.update({'cls_loss': loglikelihood_err, 'var_loss': loglikelihood_var})
-
-        if self.with_kldiv:
-            kl_alpha = (alpha - 1) * (1 - y) + 1
-            kl_div = torch.mean(annealing_coef * self.kl_divergence(kl_alpha))
-            losses.update({'kl_loss': kl_div})
         return losses
 
 
-    def edl_loss(self, y, alpha, annealing_coef=0, func=torch.log, target=None):
+    def edl_loss(self, y, alpha, func=torch.log, target=None):
         """Used for both loss_type == 'log' and loss_type == 'digamma'
         y: the one-hot labels (batchsize, num_classes)
         alpha: the predictions (batchsize, num_classes)
@@ -210,11 +180,6 @@ class EvidenceLoss(nn.Module):
         else:
             cls_loss = torch.mean(torch.sum(y * (func(S) - func(alpha)), dim=1))
         losses.update({'cls_loss': cls_loss})
-
-        if self.with_kldiv:
-            kl_alpha = (alpha - 1) * (1 - y) + 1
-            kl_div = torch.mean(annealing_coef * self.kl_divergence(kl_alpha))
-            losses.update({'kl_loss': kl_div})
         return losses
 
 
@@ -224,19 +189,3 @@ class EvidenceLoss(nn.Module):
         loglikelihood_var = torch.mean(torch.sum(alpha * (S - alpha) / (S * S * (S + 1)), dim=1, keepdim=True))
         return loglikelihood_err, loglikelihood_var
 
-
-    def kl_divergence(self, alpha):
-        beta = torch.ones([1, self.num_cls], dtype=torch.float32).to(alpha.device)
-        S_alpha = torch.sum(alpha, dim=1, keepdim=True)
-        S_beta = torch.sum(beta, dim=1, keepdim=True)
-        lnB = torch.lgamma(S_alpha) - \
-            torch.sum(torch.lgamma(alpha), dim=1, keepdim=True)
-        lnB_uni = torch.sum(torch.lgamma(beta), dim=1,
-                            keepdim=True) - torch.lgamma(S_beta)
-
-        dg0 = torch.digamma(S_alpha)
-        dg1 = torch.digamma(alpha)
-
-        kl = torch.sum((alpha - beta) * (dg1 - dg0), dim=1,
-                    keepdim=True) + lnB + lnB_uni
-        return kl

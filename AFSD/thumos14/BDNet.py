@@ -13,6 +13,7 @@ num_classes = config['dataset']['num_classes']
 freeze_bn = config['model']['freeze_bn']
 freeze_bn_affine = config['model']['freeze_bn_affine']
 evidence = config['model']['evidence'] if 'evidence' in config['model'] else 'exp'
+dropout = config['model']['dropout'] if 'dropout' in config['model'] else 0.0
 
 layer_num = 6
 conv_channels = 512
@@ -118,6 +119,7 @@ class CoarsePyramid(nn.Module):
         self.loc_heads = nn.ModuleList()
         self.frame_num = frame_num
         self.layer_num = layer_num
+        self.dropout = dropout
         self.pyramids.append(nn.Sequential(
             Unit3D(
                 in_channels=feat_channels[0],
@@ -300,8 +302,9 @@ class CoarsePyramid(nn.Module):
                     .view(batch_num, 2, -1)
                     .permute(0, 2, 1).contiguous()
             )
+            head_input = F.dropout(conf_feat, p=self.dropout) if self.dropout > 0 else conf_feat
             confs.append(
-                self.conf_head(conf_feat).view(batch_num, num_classes, -1)
+                self.conf_head(head_input).view(batch_num, num_classes, -1)
                     .permute(0, 2, 1).contiguous()
             )
             t = feat.size(2)
@@ -351,7 +354,8 @@ class CoarsePyramid(nn.Module):
                     return trip
             prop_locs.append(self.prop_loc_head(loc_prop_feat).view(batch_num, 2, -1)
                              .permute(0, 2, 1).contiguous())
-            prop_confs.append(self.prop_conf_head(conf_prop_feat).view(batch_num, num_classes, -1)
+            head_input = F.dropout(conf_prop_feat, p=self.dropout) if self.dropout > 0 else conf_prop_feat
+            prop_confs.append(self.prop_conf_head(head_input).view(batch_num, num_classes, -1)
                               .permute(0, 2, 1).contiguous())
             centers.append(
                 self.center_head(loc_prop_feat).view(batch_num, 1, -1)
