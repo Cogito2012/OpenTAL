@@ -79,7 +79,7 @@ class FocalLoss_Ori(nn.Module):
 
 
 class EvidenceLoss(nn.Module):
-    def __init__(self, num_cls, cfg):
+    def __init__(self, num_cls, cfg, size_average=False):
         super(EvidenceLoss, self).__init__()
         self.num_cls = num_cls
         self.loss_type = cfg['loss_type']
@@ -91,6 +91,8 @@ class EvidenceLoss(nn.Module):
             alpha[0] = cfg['alpha']  # background class
             self.alpha = alpha
             self.gamma = cfg['gamma']
+        self.size_average = size_average
+    
 
     def forward(self, logit, target):
         """ logit, shape=(N, K+1)
@@ -157,6 +159,12 @@ class EvidenceLoss(nn.Module):
         losses = {}
         # compute loss by considering the temporal penalty
         loglikelihood_err, loglikelihood_var = self.loglikelihood_loss(y, alpha)
+        if self.size_average:
+            loglikelihood_err = torch.mean(loglikelihood_err)
+            loglikelihood_var = torch.mean(loglikelihood_var)
+        else:
+            loglikelihood_err = torch.sum(loglikelihood_err)
+            loglikelihood_var = torch.sum(loglikelihood_var)
         losses.update({'cls_loss': loglikelihood_err, 'var_loss': loglikelihood_var})
         return losses
 
@@ -176,16 +184,69 @@ class EvidenceLoss(nn.Module):
             pred_scores, pred_cls = torch.max(alpha / S, 1)
             alpha_class = self.alpha.gather(0, target.view(-1))  # (N,)
             weight = alpha_class * torch.pow(torch.sub(1.0, pred_scores), self.gamma)  # (N,)
-            cls_loss = torch.mean(torch.sum(y * weight.unsqueeze(-1) * (func(S) - func(alpha)), dim=1))
+            cls_loss = torch.sum(y * weight.unsqueeze(-1) * (func(S) - func(alpha)), dim=1)
         else:
-            cls_loss = torch.mean(torch.sum(y * (func(S) - func(alpha)), dim=1))
+            cls_loss = torch.sum(y * (func(S) - func(alpha)), dim=1)
+        if self.size_average:
+            cls_loss = torch.mean(cls_loss)
+        else:
+            cls_loss = torch.sum(cls_loss)
         losses.update({'cls_loss': cls_loss})
         return losses
 
 
     def loglikelihood_loss(self, y, alpha):
         S = torch.sum(alpha, dim=1, keepdim=True)
-        loglikelihood_err = torch.mean(torch.sum((y - (alpha / S)) ** 2, dim=1, keepdim=True))
-        loglikelihood_var = torch.mean(torch.sum(alpha * (S - alpha) / (S * S * (S + 1)), dim=1, keepdim=True))
+        loglikelihood_err = torch.sum((y - (alpha / S)) ** 2, dim=1, keepdim=True)
+        loglikelihood_var = torch.sum(alpha * (S - alpha) / (S * S * (S + 1)), dim=1, keepdim=True)
         return loglikelihood_err, loglikelihood_var
 
+
+class ActionnessLoss(nn.Module):
+    def __init__(self, size_average=False, weight=0.1, margin=1.0):
+        super(ActionnessLoss, self).__init__()
+        self.size_average = size_average
+        self.weight = weight
+        self.margin = margin
+
+    def forward(self, logit, target):
+        """ logit, shape=(N, 1), unbounded logits
+            target, shape=(N, 1) bianry values
+        """
+        if logit.dim() > 2:
+            # N,C,d1,d2 -> N,C,m (m=d1*d2*...)
+            logit = logit.view(logit.size(0), logit.size(1), -1)
+            logit = logit.transpose(1, 2).contiguous()  # [N,C,d1*d2..] -> [N,d1*d2..,C]
+            logit = logit.view(-1, logit.size(-1))  # [N,d1*d2..,C]-> [N*d1*d2..,C]
+        label = target.view(-1)  # [N,d1,d2,...]->[N*d1*d2*...,]
+        pred = logit.view(-1) if logit.size(-1) == 1 else logit
+
+        # split the predictions into positive and negative setss
+        pos_pred, pos_label = pred[label > 0], label[label > 0]
+        neg_pred, neg_label = pred[label == 0], label[label == 0]
+
+        num_pos = pos_pred.numel()
+        num_neg = neg_pred.numel()
+        topM = min(num_pos, num_neg) - 1  # reserve one for rank loss
+        if topM > 0: # both pos and neg sets have at least 2 samples
+            _, inds = neg_pred.sort()  # by default, it is ascending sort
+            # select the top-M negatives
+            neg_clean_pred = neg_pred[inds[:topM]]
+            neg_clean_label = neg_label[inds[:topM]]
+            pred = torch.cat((pos_pred, neg_clean_pred), dim=0)
+            label = torch.cat((pos_label, neg_clean_label), dim=0)
+            num_neg = topM
+        
+        # compute BCE loss
+        reduction = 'mean' if self.size_average else 'sum'
+        loss_bce = F.binary_cross_entropy_with_logits(pred, label, reduction=reduction)
+
+        # compute rank loss
+        loss_rank = 0
+        if topM > 0:
+            neg_noisy_pred, _ = torch.max(neg_pred, dim=0)
+            pos_clean_pred, _ = torch.max(pos_pred, dim=0)
+            loss_rank = torch.maximum(torch.tensor(0.0).to(pred.device), self.margin - neg_noisy_pred + pos_clean_pred.detach())
+
+        loss_total = loss_bce + self.weight * loss_rank
+        return loss_total, num_pos + num_neg

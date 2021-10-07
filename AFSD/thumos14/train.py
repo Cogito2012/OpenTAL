@@ -24,6 +24,7 @@ focal_loss = config['training']['focal_loss']
 edl_loss = config['training']['edl_loss'] if 'edl_loss' in config['training'] else False
 edl_config = config['training']['edl_config'] if 'edl_config' in config['training'] else None
 cls_loss_type = 'edl' if edl_loss else 'focal' # by default, we use focal loss
+os_head = config['model']['os_head'] if 'os_head' in config['model'] else False
 random_seed = config['training']['random_seed']
 
 train_state_path = os.path.join(checkpoint_path, 'training')
@@ -157,10 +158,10 @@ def forward_one_epoch(net, clips, targets, scores=None, training=True, ssl=True)
         trip_loss = torch.stack(loss_).sum(0)
         return trip_loss
     else:
-        loss_l, loss_c, loss_prop_l, loss_prop_c, loss_ct = CPD_Loss(
+        loss_l, loss_c, loss_prop_l, loss_prop_c, loss_ct, loss_act, loss_prop_act = CPD_Loss(
             [output_dict['loc'], output_dict['conf'],
              output_dict['prop_loc'], output_dict['prop_conf'],
-             output_dict['center'], output_dict['priors']],
+             output_dict['center'], output_dict['priors'], output_dict['act'], output_dict['prop_act']],
             targets)
         loss_start, loss_end = calc_bce_loss(output_dict['start'], output_dict['end'], scores)
         versions = torch.__version__.split('.')
@@ -176,7 +177,7 @@ def forward_one_epoch(net, clips, targets, scores=None, training=True, ssl=True)
                                                                  scores_)
         loss_start = loss_start + 0.1 * (loss_start_loc_prop + loss_start_conf_prop)
         loss_end = loss_end + 0.1 * (loss_end_loc_prop + loss_end_conf_prop)
-        return loss_l, loss_c, loss_prop_l, loss_prop_c, loss_ct, loss_start, loss_end
+        return loss_l, loss_c, loss_prop_l, loss_prop_c, loss_ct, loss_start, loss_end, loss_act, loss_prop_act
 
 
 def run_one_epoch(epoch, net, optimizer, data_loader, epoch_step_num, training=True):
@@ -198,7 +199,7 @@ def run_one_epoch(epoch, net, optimizer, data_loader, epoch_step_num, training=T
     with tqdm.tqdm(data_loader, total=epoch_step_num, ncols=0) as pbar:
         for n_iter, (clips, targets, scores, ssl_clips, ssl_targets, flags) in enumerate(pbar):
             loss_l, loss_c, loss_prop_l, loss_prop_c, \
-            loss_ct, loss_start, loss_end = forward_one_epoch(
+            loss_ct, loss_start, loss_end, loss_act, loss_act_prop = forward_one_epoch(
                 net, clips, targets, scores, training=training, ssl=False)
 
             loss_l = loss_l * config['training']['lw']
@@ -207,6 +208,10 @@ def run_one_epoch(epoch, net, optimizer, data_loader, epoch_step_num, training=T
             loss_prop_c = loss_prop_c * config['training']['cw']
             loss_ct = loss_ct * config['training']['ctw']
             cost = loss_l + loss_c + loss_prop_l + loss_prop_c + loss_ct + loss_start + loss_end
+            if os_head:
+                loss_act = loss_act * config['training']['actw']
+                loss_act_prop = loss_act_prop * config['training']['actw']
+                cost = cost + loss_act + loss_act_prop
 
             if flags[0]:
                 loss_trip = forward_one_epoch(net, ssl_clips, ssl_targets, training=training,
@@ -233,6 +238,9 @@ def run_one_epoch(epoch, net, optimizer, data_loader, epoch_step_num, training=T
                 if flags[0]:
                     tb_writer.add_scalars(f'train_loss/regularizer/loss_trip', {'loss_trip': loss_trip.mean().item()}, cur_iter)
                 tb_writer.add_scalars(f'train_loss/loss_total', {'loss_total': cost.mean().item()}, cur_iter)
+                if os_head:
+                    tb_writer.add_scalars(f'train_loss/coarse/loss_act', {'loss_act': loss_act.mean().item()}, cur_iter)
+                    tb_writer.add_scalars(f'train_loss/refined/loss_act_prop', {'loss_act': loss_act_prop.mean().item()}, cur_iter)
 
             loss_loc_val += loss_l.cpu().detach().numpy()
             loss_conf_val += loss_c.cpu().detach().numpy()
@@ -291,7 +299,8 @@ if __name__ == '__main__':
     Setup loss
     """
     piou = config['training']['piou']
-    CPD_Loss = MultiSegmentLoss(num_classes, piou, 1.0, cls_loss_type=cls_loss_type, edl_config=edl_config)
+    num_cls = num_classes - 1 if os_head else num_classes
+    CPD_Loss = MultiSegmentLoss(num_cls, piou, 1.0, cls_loss_type=cls_loss_type, edl_config=edl_config, os_head=os_head)
 
     """
     Setup dataloader

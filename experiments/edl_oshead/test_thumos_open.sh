@@ -7,7 +7,7 @@ source activate afsd
 
 GPU_ID=$1
 ALL_SPLITS="0 1 2 4"
-EXP_TAG="edl_droput_15kc"
+EXP_TAG="edl_oshead_15kc"
 
 for SPLIT in ${ALL_SPLITS}
 do
@@ -16,7 +16,7 @@ do
         # run RGB model
         echo "Test the RGB model on Thumos14 Open Set (Split=${SPLIT}):"
         CUDA_VISIBLE_DEVICES=${GPU_ID} python AFSD/thumos14/test.py \
-            configs/thumos14_open_edl_15kc.yaml \
+            configs/thumos14_open_edl_oshead_15kc.yaml \
             --open_set \
             --split=${SPLIT} \
             --output_json=thumos14_open_rgb.json 

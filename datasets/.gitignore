@@ -1,6 +1,6 @@
-activitynet/*_npy/*
-thumos14/*_npy/*
-finegym/*_npy/*
+activitynet
+thumos14
+finegym
 *.pt
 *.pth
 *.mp4

@@ -14,6 +14,7 @@ freeze_bn = config['model']['freeze_bn']
 freeze_bn_affine = config['model']['freeze_bn_affine']
 evidence = config['model']['evidence'] if 'evidence' in config['model'] else 'exp'
 dropout = config['model']['dropout'] if 'dropout' in config['model'] else 0.0
+os_head = config['model']['os_head'] if 'os_head' in config['model'] else False
 
 layer_num = 6
 conv_channels = 512
@@ -112,7 +113,7 @@ class ProposalBranch(nn.Module):
 
 
 class CoarsePyramid(nn.Module):
-    def __init__(self, feat_channels, frame_num=256):
+    def __init__(self, feat_channels, num_cls, frame_num=256):
         super(CoarsePyramid, self).__init__()
         out_channels = conv_channels
         self.pyramids = nn.ModuleList()
@@ -120,6 +121,8 @@ class CoarsePyramid(nn.Module):
         self.frame_num = frame_num
         self.layer_num = layer_num
         self.dropout = dropout
+        self.num_classes = num_cls
+        self.os_head = os_head
         self.pyramids.append(nn.Sequential(
             Unit3D(
                 in_channels=feat_channels[0],
@@ -206,12 +209,21 @@ class CoarsePyramid(nn.Module):
         )
         self.conf_head = Unit1D(
             in_channels=out_channels,
-            output_channels=num_classes,
+            output_channels=self.num_classes,
             kernel_shape=3,
             stride=1,
             use_bias=True,
             activation_fn=None
         )
+        if self.os_head:
+            self.actionness_head = Unit1D(
+                in_channels=out_channels,
+                output_channels=1,
+                kernel_shape=3,
+                stride=1,
+                use_bias=True,
+                activation_fn=None
+            )
 
         self.loc_proposal_branch = ProposalBranch(out_channels, 512)
         self.conf_proposal_branch = ProposalBranch(out_channels, 512)
@@ -224,10 +236,17 @@ class CoarsePyramid(nn.Module):
         )
         self.prop_conf_head = Unit1D(
             in_channels=out_channels,
-            output_channels=num_classes,
+            output_channels=self.num_classes,
             kernel_shape=1,
             activation_fn=None
         )
+        if self.os_head:
+            self.prop_actionness_head = Unit1D(
+                in_channels=out_channels,
+                output_channels=1,
+                kernel_shape=1,
+                activation_fn=None
+            )
 
         self.center_head = Unit1D(
             in_channels=out_channels,
@@ -263,9 +282,11 @@ class CoarsePyramid(nn.Module):
         pyramid_feats = []
         locs = []
         confs = []
+        acts = []
         centers = []
         prop_locs = []
         prop_confs = []
+        prop_acts = []
         trip = []
         x2 = feat_dict['Mixed_5c']
         x1 = feat_dict['Mixed_4f']
@@ -304,9 +325,14 @@ class CoarsePyramid(nn.Module):
             )
             head_input = F.dropout(conf_feat, p=self.dropout) if self.dropout > 0 else conf_feat
             confs.append(
-                self.conf_head(head_input).view(batch_num, num_classes, -1)
+                self.conf_head(head_input).view(batch_num, self.num_classes, -1)
                     .permute(0, 2, 1).contiguous()
             )
+            if self.os_head:
+                acts.append(
+                    self.actionness_head(conf_feat).view(batch_num, 1, -1)
+                        .permute(0, 2, 1).contiguous()  # (1, D, 1)
+                )
             t = feat.size(2)
             with torch.no_grad():
                 segments = locs[-1] / self.frame_num * t
@@ -355,28 +381,39 @@ class CoarsePyramid(nn.Module):
             prop_locs.append(self.prop_loc_head(loc_prop_feat).view(batch_num, 2, -1)
                              .permute(0, 2, 1).contiguous())
             head_input = F.dropout(conf_prop_feat, p=self.dropout) if self.dropout > 0 else conf_prop_feat
-            prop_confs.append(self.prop_conf_head(head_input).view(batch_num, num_classes, -1)
+            prop_confs.append(self.prop_conf_head(head_input).view(batch_num, self.num_classes, -1)
                               .permute(0, 2, 1).contiguous())
+            if self.os_head:
+                prop_acts.append(self.prop_actionness_head(conf_prop_feat).view(batch_num, 1, -1)
+                                .permute(0, 2, 1).contiguous())  # (1, D, 1)
             centers.append(
                 self.center_head(loc_prop_feat).view(batch_num, 1, -1)
                     .permute(0, 2, 1).contiguous()
             )
 
         loc = torch.cat([o.view(batch_num, -1, 2) for o in locs], 1)
-        conf = torch.cat([o.view(batch_num, -1, num_classes) for o in confs], 1)
+        conf = torch.cat([o.view(batch_num, -1, self.num_classes) for o in confs], 1)
         prop_loc = torch.cat([o.view(batch_num, -1, 2) for o in prop_locs], 1)
-        prop_conf = torch.cat([o.view(batch_num, -1, num_classes) for o in prop_confs], 1)
+        prop_conf = torch.cat([o.view(batch_num, -1, self.num_classes) for o in prop_confs], 1)
         center = torch.cat([o.view(batch_num, -1, 1) for o in centers], 1)
         priors = torch.cat(self.priors, 0).to(loc.device)
-        return loc, conf, prop_loc, prop_conf, center, priors, start, end, \
-               start_loc_prop, end_loc_prop, start_conf_prop, end_conf_prop
+        outs = (loc, conf, prop_loc, prop_conf, center, priors, start, end, \
+               start_loc_prop, end_loc_prop, start_conf_prop, end_conf_prop)
+        act, prop_act = None, None
+        if self.os_head:
+            act = torch.cat([o.view(batch_num, -1, 1) for o in acts], 1)  # (1, 126, 1)
+            prop_act = torch.cat([o.view(batch_num, -1, 1) for o in prop_acts], 1)  # (1, 126, 1)
+        outs += (act, prop_act)
+        return outs
 
 
 class BDNet(nn.Module):
     def __init__(self, in_channels=3, backbone_model=None, training=True, use_edl=False):
         super(BDNet, self).__init__()
 
-        self.coarse_pyramid_detection = CoarsePyramid([832, 1024])
+        self.os_head = os_head
+        self.num_classes = num_classes - 1 if self.os_head else num_classes
+        self.coarse_pyramid_detection = CoarsePyramid([832, 1024], self.num_classes)
         self.reset_params()
 
         self.backbone = I3D_BackBone(in_channels=in_channels)
@@ -438,7 +475,7 @@ class BDNet(nn.Module):
             return anchor, positive, negative
         else:
             loc, conf, prop_loc, prop_conf, center, priors, start, end, \
-            start_loc_prop, end_loc_prop, start_conf_prop, end_conf_prop = \
+            start_loc_prop, end_loc_prop, start_conf_prop, end_conf_prop, act, prop_act = \
                 self.coarse_pyramid_detection(feat_dict)
             out_dict = {
                     'loc': loc,
@@ -452,7 +489,9 @@ class BDNet(nn.Module):
                     'start_loc_prop': start_loc_prop,
                     'end_loc_prop': end_loc_prop,
                     'start_conf_prop': start_conf_prop,
-                    'end_conf_prop': end_conf_prop
+                    'end_conf_prop': end_conf_prop,
+                    'act': act,
+                    'prop_act': prop_act
                 }
             if self.use_edl:
                 unct = self.compute_uncertainty(conf)
@@ -462,7 +501,7 @@ class BDNet(nn.Module):
 
     def compute_uncertainty(self, logit):
         alpha = self.evidence_func(logit) + 1  # alpha = e + 1
-        uncertainty = num_classes / alpha.sum(-1)  # u = K / S
+        uncertainty = self.num_classes / alpha.sum(-1)  # u = K / S
         return uncertainty
 
     def evidence_func(self, logit):
