@@ -7,6 +7,7 @@ source activate afsd
 
 GPU_ID=$1
 ALL_SPLITS="0 1 2 4"
+OOD_SCORING="uncertainty_actionness"
 
 for SPLIT in ${ALL_SPLITS}
 do
@@ -18,7 +19,7 @@ do
             configs/thumos14_open_edl_oshead_15kc.yaml \
             --open_set \
             --split=${SPLIT} \
-            --ood_scoring uncertainty \
+            --ood_scoring ${OOD_SCORING} \
             --output_json=thumos14_open_trainset.json 
     else
         echo "Result file exists! ${PRED_FILE}"

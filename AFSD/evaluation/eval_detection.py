@@ -161,7 +161,13 @@ class ANETdetection(object):
             for result in v:
                 if result['label'] not in self.activity_index:
                     continue
-                res_score = 1 - result['uncertainty'] if self.ood_scoring == 'uncertainty' else result['score']
+                # known/unknown classification
+                if self.ood_scoring == 'uncertainty':
+                    res_score = 1 - result['uncertainty']
+                elif self.ood_scoring == 'confidence':
+                    res_score = result['score']
+                elif self.ood_scoring == 'uncertainty_actionness':
+                    res_score = 1 - result['uncertainty'] * result['actionness']
                 if self.openset and res_score < self.ood_threshold:
                     label = self.activity_index['__unknown__']  # reject the unknown
                 else:

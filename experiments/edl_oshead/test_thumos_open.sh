@@ -8,6 +8,7 @@ source activate afsd
 GPU_ID=$1
 ALL_SPLITS="0 1 2 4"
 EXP_TAG="edl_oshead_15kc"
+OOD_SCORING="uncertainty_actionness"
 
 for SPLIT in ${ALL_SPLITS}
 do
@@ -35,7 +36,7 @@ python AFSD/thumos14/eval_open.py \
     datasets/thumos14/annotations_open/split_{id:d}/known_gt.json \
     --cls_idx_known ${CLS_IDX_KNOWN} \
     --all_splits ${ALL_SPLITS} \
-    --ood_scoring uncertainty
+    --ood_scoring ${OOD_SCORING}
 
 echo -e "\nOpen Set Evaluation (15+1 Classes)"
 python AFSD/thumos14/eval_open.py \
@@ -45,7 +46,7 @@ python AFSD/thumos14/eval_open.py \
     --open_set \
     --trainset_result ${TRAINSET_RESULT} \
     --all_splits ${ALL_SPLITS} \
-    --ood_scoring uncertainty
+    --ood_scoring ${OOD_SCORING}
 
 cd $pwd_dir
 echo "Experiments finished!"

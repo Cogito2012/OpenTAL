@@ -33,7 +33,7 @@ def get_config():
 
     parser.add_argument('--open_set', action='store_true')
     parser.add_argument('--split', type=int, choices=[0, 1, 2, 3, 4], default=0)
-    parser.add_argument('--ood_scoring', type=str, default='confidence', choices=['uncertainty', 'confidence'])
+    parser.add_argument('--ood_scoring', type=str, default='confidence', choices=['uncertainty', 'confidence', 'uncertainty_actionness'])
 
     args = parser.parse_args()
 

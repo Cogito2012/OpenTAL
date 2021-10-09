@@ -75,30 +75,38 @@ def prepare_clip(data, offset, clip_length):
     return clip
 
 
-def parse_output(output_dict, flow_output_dict=None, fusion=False, use_edl=False):
+def parse_output(output_dict, flow_output_dict=None, fusion=False, use_edl=False, os_head=False):
+    act, prop_act, unct, prop_unct = None, None, None, None
     loc, conf, priors = output_dict['loc'][0], output_dict['conf'][0], output_dict['priors']
     prop_loc, prop_conf = output_dict['prop_loc'][0], output_dict['prop_conf'][0]
+    if os_head:
+        act, prop_act = output_dict['act'][0].squeeze(-1), output_dict['prop_act'][0].squeeze(-1)
     unct = output_dict['unct'][0] if use_edl else None
     prop_unct = output_dict['prop_unct'][0] if use_edl else None
     center = output_dict['center'][0]
     if fusion:
         flow_loc, flow_conf, priors = flow_output_dict['loc'][0], flow_output_dict['conf'][0], flow_output_dict['priors']
         flow_prop_loc, flow_prop_conf = flow_output_dict['prop_loc'][0], flow_output_dict['prop_conf'][0]
-        flow_prop_unct, flow_unct = flow_output_dict['prop_unct'][0], flow_output_dict['unct'][0]
         flow_center = flow_output_dict['center'][0]
         # fusion by average
         loc = (loc + flow_loc) / 2.0
         prop_loc = (prop_loc + flow_prop_loc) / 2.0
         conf = (conf + flow_conf) / 2.0
         prop_conf = (prop_conf + flow_prop_conf) / 2.0
-        unct = (unct + flow_unct) / 2.0
-        prop_unct = (prop_unct + flow_prop_unct) / 2.0
         center = (center + flow_center) / 2.0
-    return loc, conf, prop_loc, prop_conf, center, priors, unct, prop_unct
+        if os_head:
+            flow_act, flow_prop_act = flow_output_dict['act'][0], flow_output_dict['prop_act'][0]
+            act = (act + flow_act) / 2.0
+            prop_act = (prop_act + flow_prop_act) / 2.0
+        if use_edl:
+            flow_prop_unct, flow_unct = flow_output_dict['prop_unct'][0], flow_output_dict['unct'][0]
+            unct = (unct + flow_unct) / 2.0
+            prop_unct = (prop_unct + flow_prop_unct) / 2.0
+    return loc, conf, prop_loc, prop_conf, center, priors, unct, prop_unct, act, prop_act
 
 
-def decode_predictions(loc, prop_loc, priors, conf, prop_conf, unct, prop_unct, center, \
-                        offset, sample_fps, clip_length, num_classes, score_func=nn.Softmax(dim=-1), use_edl=False):
+def decode_predictions(loc, prop_loc, priors, conf, prop_conf, unct, prop_unct, act, prop_act, center, \
+                        offset, sample_fps, clip_length, num_classes, score_func=nn.Softmax(dim=-1), use_edl=False, os_head=False):
     pre_loc_w = loc[:, :1] + loc[:, 1:]
     loc = 0.5 * pre_loc_w * prop_loc + loc
     segments = torch.cat(
@@ -108,7 +116,10 @@ def decode_predictions(loc, prop_loc, priors, conf, prop_conf, unct, prop_unct, 
     decoded_segments = (segments + offset) / sample_fps
 
     # compute uncertainty
-    uncertainty = (unct + prop_unct) / 2.0 if use_edl else torch.zeros(conf.size(0)).to(conf.device)
+    uncertainty = (unct + prop_unct) / 2.0 if use_edl else None
+
+    # compute actionness
+    actionness = (act + prop_act) / 2.0 if os_head else None
 
     conf = score_func(conf)
     prop_conf = score_func(prop_conf)
@@ -118,10 +129,10 @@ def decode_predictions(loc, prop_loc, priors, conf, prop_conf, unct, prop_unct, 
     conf = conf * center
     conf = conf.view(-1, num_classes).transpose(1, 0)
     conf_scores = conf.clone()
-    return decoded_segments, conf_scores, uncertainty
+    return decoded_segments, conf_scores, uncertainty, actionness
 
 
-def filtering(decoded_segments, conf_score_cls, uncertainty, conf_thresh):
+def filtering(decoded_segments, conf_score_cls, uncertainty, actionness, conf_thresh, use_edl=False, os_head=False):
     c_mask = conf_score_cls > conf_thresh
     scores = conf_score_cls[c_mask]
     if scores.size(0) == 0:
@@ -129,32 +140,40 @@ def filtering(decoded_segments, conf_score_cls, uncertainty, conf_thresh):
     # masking segments
     l_mask = c_mask.unsqueeze(1).expand_as(decoded_segments)
     segments = decoded_segments[l_mask].view(-1, 2)
-    # masking uncertainties
-    uncertain_scores = uncertainty[c_mask]
-    # decode to original time
-    segments = torch.cat([segments, scores.unsqueeze(1), uncertain_scores.unsqueeze(1)], -1)
+    segments = torch.cat([segments, scores.unsqueeze(1)], -1)  # (N, 3)
+    if use_edl:
+        # masking uncertainties
+        uncertain_scores = uncertainty[c_mask]
+        segments = torch.cat([segments, uncertain_scores.unsqueeze(1)], -1)  # (N, 4)
+    if os_head:
+        # masking actionness
+        act_scores = actionness[c_mask]
+        segments = torch.cat([segments, act_scores.unsqueeze(1)], -1)  # (N, 4) or (N, 5)
     return segments
 
 
-def get_video_detections(output, idx_to_class, num_classes, top_k, nms_sigma):
-    res = torch.zeros(num_classes, top_k, 4)
+def get_video_detections(output, idx_to_class, num_classes, top_k, nms_sigma, use_edl=False, os_head=False):
+    res_dim = 3
+    res_dim = res_dim + 1 if use_edl else res_dim  # 3 or 4
+    res_dim = res_dim + 1 if os_head else res_dim  # 3 or 4 or 5
+    res = torch.zeros(num_classes, top_k, res_dim)
     sum_count = 0
     for cl in range(1, num_classes):
         if len(output[cl]) == 0:
             continue
         tmp = torch.cat(output[cl], 0)
-        tmp, count = softnms_v2(tmp, sigma=nms_sigma, top_k=top_k)
+        tmp, count = softnms_v2(tmp, sigma=nms_sigma, top_k=top_k, use_edl=use_edl, os_head=os_head)
         res[cl, :count] = tmp
         sum_count += count
 
     sum_count = min(sum_count, top_k)
-    flt = res.contiguous().view(-1, 4)
-    flt = flt.view(num_classes, -1, 4)
+    flt = res.contiguous().view(-1, res_dim)
+    flt = flt.view(num_classes, -1, res_dim)
     proposal_list = []
     for cl in range(1, num_classes):
         class_name = idx_to_class[cl]
         tmp = flt[cl].contiguous()
-        tmp = tmp[(tmp[:, 2] > 0).unsqueeze(-1).expand_as(tmp)].view(-1, 4)
+        tmp = tmp[(tmp[:, 2] > 0).unsqueeze(-1).expand_as(tmp)].view(-1, res_dim)
         if tmp.size(0) == 0:
             continue
         tmp = tmp.detach().cpu().numpy()
@@ -164,7 +183,8 @@ def get_video_detections(output, idx_to_class, num_classes, top_k, nms_sigma):
             tmp_proposal['score'] = float(tmp[i, 2])
             tmp_proposal['segment'] = [float(tmp[i, 0]),
                                         float(tmp[i, 1])]
-            tmp_proposal['uncertainty'] = float(tmp[i, 3])
+            tmp_proposal['uncertainty'] = float(tmp[i, 3]) if use_edl else 0.0
+            tmp_proposal['actionness'] = float(tmp[i, 4]) if os_head else 0.0
             proposal_list.append(tmp_proposal)
     return proposal_list
 
@@ -199,18 +219,18 @@ def test(cfg):
                 output_dict = net(clip)
                 flow_output_dict = flow_net(flow_clip) if cfg.fusion else None
 
-            loc, conf, prop_loc, prop_conf, center, priors, unct, prop_unct = parse_output(output_dict, flow_output_dict, fusion=cfg.fusion, use_edl=cfg.use_edl)
-            decoded_segments, conf_scores, uncertainty = decode_predictions(loc, prop_loc, priors, conf, prop_conf, unct, prop_unct, \
-                                                                center, offset, sample_fps, cfg.clip_length, cfg.num_classes, score_func=nn.Softmax(dim=-1), use_edl=cfg.use_edl)
+            loc, conf, prop_loc, prop_conf, center, priors, unct, prop_unct, act, prop_act = parse_output(output_dict, flow_output_dict, fusion=cfg.fusion, use_edl=cfg.use_edl, os_head=cfg.os_head)
+            decoded_segments, conf_scores, uncertainty, actionness = decode_predictions(loc, prop_loc, priors, conf, prop_conf, unct, prop_unct, act, prop_act, \
+                                                                center, offset, sample_fps, cfg.clip_length, cfg.num_classes, score_func=nn.Softmax(dim=-1), use_edl=cfg.use_edl, os_head=cfg.os_head)
             # filtering out clip-level predictions with low confidence
             for cl in range(1, cfg.num_classes):
-                segments = filtering(decoded_segments, conf_scores[cl], uncertainty, cfg.conf_thresh)
+                segments = filtering(decoded_segments, conf_scores[cl], uncertainty, actionness, cfg.conf_thresh, use_edl=cfg.use_edl, os_head=cfg.os_head)  # (N,5)
                 if segments is None:
                     continue
                 output[cl].append(segments)
 
         # get final detection results for each video
-        result_dict[video_name] = get_video_detections(output, idx_to_class, cfg.num_classes, cfg.top_k, cfg.nms_sigma)
+        result_dict[video_name] = get_video_detections(output, idx_to_class, cfg.num_classes, cfg.top_k, cfg.nms_sigma, use_edl=cfg.use_edl, os_head=cfg.os_head)
 
     output_dict = {"version": "THUMOS14", "results": dict(result_dict), "external_data": {}}
     with open(os.path.join(cfg.output_path, cfg.json_name), "w") as out:
@@ -227,6 +247,9 @@ def get_basic_config(config):
     cfg.clip_length = config['dataset']['testing']['clip_length']
     cfg.stride = config['dataset']['testing']['clip_stride']
     cfg.use_edl = config['model']['use_edl'] if 'use_edl' in config['model'] else False
+    cfg.os_head = config['model']['os_head'] if 'os_head' in config['model'] else False
+    if cfg.os_head:
+        cfg.num_classes = cfg.num_classes - 1
 
     cfg.json_name = config['testing']['output_json']
     cfg.output_path = config['testing']['output_path']

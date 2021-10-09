@@ -22,6 +22,9 @@ def get_basic_config(config):
     cfg.stride = config['dataset']['testing']['clip_stride']
     cfg.use_edl = config['model']['use_edl'] if 'use_edl' in config['model'] else False
     cfg.scoring = config['testing']['ood_scoring']
+    cfg.os_head = config['model']['os_head'] if 'os_head' in config['model'] else False
+    if cfg.os_head:
+        cfg.num_classes = cfg.num_classes - 1
 
     cfg.json_name = config['testing']['output_json']
     cfg.output_path = config['testing']['output_path']
@@ -90,24 +93,29 @@ def thresholding(cfg, output_file):
                 output_dict = net(clip)
                 flow_output_dict = flow_net(flow_clip) if cfg.fusion else None
 
-            loc, conf, prop_loc, prop_conf, center, priors, unct, prop_unct = parse_output(output_dict, flow_output_dict, fusion=cfg.fusion, use_edl=cfg.use_edl)
-            decoded_segments, conf_scores, uncertainty = decode_predictions(loc, prop_loc, priors, conf, prop_conf, unct, prop_unct, \
-                                                                center, offset, sample_fps, cfg.clip_length, cfg.num_classes, score_func=nn.Softmax(dim=-1), use_edl=cfg.use_edl)
+            loc, conf, prop_loc, prop_conf, center, priors, unct, prop_unct, act, prop_act = parse_output(output_dict, flow_output_dict, fusion=cfg.fusion, use_edl=cfg.use_edl, os_head=cfg.os_head)
+            decoded_segments, conf_scores, uncertainty, actionness = decode_predictions(loc, prop_loc, priors, conf, prop_conf, unct, prop_unct, act, prop_act, \
+                                                                center, offset, sample_fps, cfg.clip_length, cfg.num_classes, score_func=nn.Softmax(dim=-1), use_edl=cfg.use_edl, os_head=cfg.os_head)
             # filtering out clip-level predictions with low confidence
             for cl in range(1, cfg.num_classes):
-                segments = filtering(decoded_segments, conf_scores[cl], uncertainty, cfg.conf_thresh)
+                segments = filtering(decoded_segments, conf_scores[cl], uncertainty, actionness, cfg.conf_thresh, use_edl=cfg.use_edl, os_head=cfg.os_head)
                 if segments is None:
                     continue
                 output[cl].append(segments)
 
         # get final detection results for each video
-        result_dict[video_name] = get_video_detections(output, idx_to_class, cfg.num_classes, cfg.top_k, cfg.nms_sigma)
+        result_dict[video_name] = get_video_detections(output, idx_to_class, cfg.num_classes, cfg.top_k, cfg.nms_sigma, use_edl=cfg.use_edl, os_head=cfg.os_head)
 
     # get the score threshold
     all_scores = []
     for vid, proposal_list in result_dict.items():
         for prop in proposal_list:
-            ood_score = 1 - prop['uncertainty'] if cfg.scoring == 'uncertainty' else prop['score']
+            if cfg.scoring == 'uncertainty':
+                ood_score = 1 - prop['uncertainty']
+            elif cfg.scoring == 'confidence':
+                ood_score = prop['score']
+            elif cfg.scoring == 'uncertainty_actionness':
+                ood_score = 1 - prop['uncertainty'] * prop['actionness']
             all_scores.append(ood_score)
     score_sorted = np.sort(all_scores)  # sort the confidence score in an increasing order
     N = len(all_scores)
