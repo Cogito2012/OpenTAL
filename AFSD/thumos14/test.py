@@ -59,7 +59,7 @@ def prepare_data(data_path, video_name, centor_crop):
     data = np.load(os.path.join(data_path, video_name + '.npy'))
     data = np.transpose(data, [3, 0, 1, 2])
     data = centor_crop(data)
-    data = torch.from_numpy(data)
+    data = torch.from_numpy(data).cuda()
     return data
 
 
@@ -69,9 +69,9 @@ def prepare_clip(data, offset, clip_length):
     clip = (clip / 255.0) * 2.0 - 1.0
     if clip.size(1) < clip_length:
         tmp = torch.zeros([clip.size(0), clip_length - clip.size(1),
-                            96, 96]).float()
+                            96, 96]).float().cuda()
         clip = torch.cat([clip, tmp], dim=1)
-    clip = clip.unsqueeze(0).cuda()
+    clip = clip.unsqueeze(0)
     return clip
 
 
@@ -119,7 +119,7 @@ def decode_predictions(loc, prop_loc, priors, conf, prop_conf, unct, prop_unct, 
     uncertainty = (unct + prop_unct) / 2.0 if use_edl else None
 
     # compute actionness
-    actionness = (act + prop_act) / 2.0 if os_head else None
+    actionness = (act.sigmoid() + prop_act.sigmoid()) / 2.0 if os_head else None
 
     conf = score_func(conf)
     prop_conf = score_func(prop_conf)

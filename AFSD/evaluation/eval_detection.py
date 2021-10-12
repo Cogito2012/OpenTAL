@@ -152,7 +152,7 @@ class ANETdetection(object):
 
         # Read predictions.
         video_lst, t_start_lst, t_end_lst = [], [], []
-        label_lst, score_lst = [], []
+        label_lst, score_lst, uncertainty_lst, actness_lst = [], [], [], []
         for videoid, v in data['results'].items():
             if videoid in self.blocked_videos:
                 continue
@@ -164,10 +164,13 @@ class ANETdetection(object):
                 # known/unknown classification
                 if self.ood_scoring == 'uncertainty':
                     res_score = 1 - result['uncertainty']
+                    uncertainty_lst.append(result['uncertainty'])
                 elif self.ood_scoring == 'confidence':
                     res_score = result['score']
                 elif self.ood_scoring == 'uncertainty_actionness':
                     res_score = 1 - result['uncertainty'] * result['actionness']
+                    uncertainty_lst.append(result['uncertainty'])
+                    actness_lst.append(result['actionness'])
                 if self.openset and res_score < self.ood_threshold:
                     label = self.activity_index['__unknown__']  # reject the unknown
                 else:
@@ -177,11 +180,16 @@ class ANETdetection(object):
                 t_end_lst.append(float(result['segment'][1]))
                 label_lst.append(label)
                 score_lst.append(result['score'])
-        prediction = pd.DataFrame({'video-id': video_lst,
+        pred_dict = {'video-id': video_lst,
                                    't-start': t_start_lst,
                                    't-end': t_end_lst,
                                    'label': label_lst,
-                                   'score': score_lst})
+                                   'score': score_lst}
+        if self.ood_scoring in ['uncertainty', 'uncertainty_actionness']:
+            pred_dict.update({'uncertainty': uncertainty_lst})
+        if self.ood_scoring == 'uncertainty_actionness':
+            pred_dict.update({'actionness': actness_lst})
+        prediction = pd.DataFrame(pred_dict)
         return prediction
 
     def _get_predictions_with_label(self, prediction_by_label, label_name, cidx):
@@ -518,7 +526,7 @@ def compute_wilderness_impact(ground_truth_all, prediction_all, video_list, know
         vidx_offset += len(prediction)
 
     stats = {'tp_k2k': tp_k2k, 'tp_u2u': tp_u2u, 'fp_k2k': fp_k2k, 'fp_k2u': fp_k2u, 'fp_u2k': fp_u2k, 'fp_bg2k': fp_bg2k, 'fp_bg2u': fp_bg2u,
-             'scores': all_scores, 'max_tious': all_max_tious}
+             'scores': all_scores, 'max_tious': all_max_tious, 'num_gt': num_gt}
     
     # # report the AP for known classes
     # ap = np.zeros((len(known_classes), len(tiou_thresholds)), dtype=np.float32)  # K classes
