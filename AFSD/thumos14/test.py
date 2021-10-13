@@ -1,12 +1,13 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import os
 import numpy as np
 import tqdm
 import json
 from AFSD.common import videotransforms
 from AFSD.common.thumos_dataset import get_video_info, get_class_index_map
-from AFSD.thumos14.BDNet import BDNet
+from AFSD.thumos14.BDNet import BDNet, DirichletLayer
 from AFSD.common.segment_utils import softnms_v2
 from AFSD.common.config import config
 
@@ -119,14 +120,16 @@ def decode_predictions(loc, prop_loc, priors, conf, prop_conf, unct, prop_unct, 
     uncertainty = (unct + prop_unct) / 2.0 if use_edl else None
 
     # compute actionness
-    actionness = (act.sigmoid() + prop_act.sigmoid()) / 2.0 if os_head else None
+    act_score = act.sigmoid()
+    prop_act_score = prop_act.sigmoid()
+    actionness = (act_score + prop_act_score) / 2.0 if os_head else None
 
     conf = score_func(conf)
     prop_conf = score_func(prop_conf)
     center = center.sigmoid()
 
     conf = (conf + prop_conf) / 2.0
-    conf = conf * center
+    conf = conf * center * actionness.unsqueeze(-1)
     conf = conf.view(-1, num_classes).transpose(1, 0)
     conf_scores = conf.clone()
     return decoded_segments, conf_scores, uncertainty, actionness
@@ -152,13 +155,13 @@ def filtering(decoded_segments, conf_score_cls, uncertainty, actionness, conf_th
     return segments
 
 
-def get_video_detections(output, idx_to_class, num_classes, top_k, nms_sigma, use_edl=False, os_head=False):
+def get_video_detections(output, idx_to_class, num_classes, top_k, nms_sigma, use_edl=False, os_head=False, cls_rng=None):
     res_dim = 3
     res_dim = res_dim + 1 if use_edl else res_dim  # 3 or 4
     res_dim = res_dim + 1 if os_head else res_dim  # 3 or 4 or 5
     res = torch.zeros(num_classes, top_k, res_dim)
     sum_count = 0
-    for cl in range(1, num_classes):
+    for cl in cls_rng:  # from 1 to K+1 by default, or 0 to K for os_head
         if len(output[cl]) == 0:
             continue
         tmp = torch.cat(output[cl], 0)
@@ -170,8 +173,9 @@ def get_video_detections(output, idx_to_class, num_classes, top_k, nms_sigma, us
     flt = res.contiguous().view(-1, res_dim)
     flt = flt.view(num_classes, -1, res_dim)
     proposal_list = []
-    for cl in range(1, num_classes):
-        class_name = idx_to_class[cl]
+    for cl in cls_rng:  # from 1 to K+1 by default, or 0 to K for os_head
+        cl_idx = cl + 1 if os_head else cl
+        class_name = idx_to_class[cl_idx]  # 1 to K
         tmp = flt[cl].contiguous()
         tmp = tmp[(tmp[:, 2] > 0).unsqueeze(-1).expand_as(tmp)].view(-1, res_dim)
         if tmp.size(0) == 0:
@@ -194,9 +198,11 @@ def test(cfg):
     video_infos = get_video_info(config['dataset']['testing']['video_info_path'])
     _, idx_to_class = get_class_index_map(config['dataset']['class_info_path'])
     npy_data_path = cfg.rgb_data_path if cfg.fusion else config['dataset']['testing']['video_data_path']
+    class_range = range(1, cfg.num_classes) if not cfg.os_head else range(0, cfg.num_classes)
 
     # prepare model
     net, flow_net = build_model(fusion=cfg.fusion)
+    out_layer = DirichletLayer(evidence=cfg.evidence, dim=-1) if cfg.use_edl else nn.Softmax(dim=-1)
 
     centor_crop = videotransforms.CenterCrop(config['dataset']['testing']['crop_size'])
     result_dict = {}
@@ -210,6 +216,7 @@ def test(cfg):
         flow_data = prepare_data(cfg.flow_data_path, video_name, centor_crop) if cfg.fusion else None
 
         output = [[] for cl in range(cfg.num_classes)]
+        output_dict_all = []
         for offset in offsetlist:
             # prepare clip of a video
             clip = prepare_clip(data, offset, cfg.clip_length)
@@ -218,19 +225,22 @@ def test(cfg):
             with torch.no_grad():
                 output_dict = net(clip)
                 flow_output_dict = flow_net(flow_clip) if cfg.fusion else None
+            output_dict_all.append((output_dict, flow_output_dict, offset))
 
+        # post-processing
+        for (output_dict, flow_output_dict, offset) in output_dict_all:
             loc, conf, prop_loc, prop_conf, center, priors, unct, prop_unct, act, prop_act = parse_output(output_dict, flow_output_dict, fusion=cfg.fusion, use_edl=cfg.use_edl, os_head=cfg.os_head)
             decoded_segments, conf_scores, uncertainty, actionness = decode_predictions(loc, prop_loc, priors, conf, prop_conf, unct, prop_unct, act, prop_act, \
-                                                                center, offset, sample_fps, cfg.clip_length, cfg.num_classes, score_func=nn.Softmax(dim=-1), use_edl=cfg.use_edl, os_head=cfg.os_head)
+                                                                center, offset, sample_fps, cfg.clip_length, cfg.num_classes, score_func=out_layer, use_edl=cfg.use_edl, os_head=cfg.os_head)
             # filtering out clip-level predictions with low confidence
-            for cl in range(1, cfg.num_classes):
+            for cl in class_range:  # from 1 to K+1 by default, or 0 to K for os_head
                 segments = filtering(decoded_segments, conf_scores[cl], uncertainty, actionness, cfg.conf_thresh, use_edl=cfg.use_edl, os_head=cfg.os_head)  # (N,5)
                 if segments is None:
                     continue
                 output[cl].append(segments)
 
         # get final detection results for each video
-        result_dict[video_name] = get_video_detections(output, idx_to_class, cfg.num_classes, cfg.top_k, cfg.nms_sigma, use_edl=cfg.use_edl, os_head=cfg.os_head)
+        result_dict[video_name] = get_video_detections(output, idx_to_class, cfg.num_classes, cfg.top_k, cfg.nms_sigma, use_edl=cfg.use_edl, os_head=cfg.os_head, cls_rng=class_range)
 
     output_dict = {"version": "THUMOS14", "results": dict(result_dict), "external_data": {}}
     with open(os.path.join(cfg.output_path, cfg.json_name), "w") as out:
@@ -247,6 +257,8 @@ def get_basic_config(config):
     cfg.clip_length = config['dataset']['testing']['clip_length']
     cfg.stride = config['dataset']['testing']['clip_stride']
     cfg.use_edl = config['model']['use_edl'] if 'use_edl' in config['model'] else False
+    if cfg.use_edl:
+        cfg.evidence = config['model']['evidence']
     cfg.os_head = config['model']['os_head'] if 'os_head' in config['model'] else False
     if cfg.os_head:
         cfg.num_classes = cfg.num_classes - 1

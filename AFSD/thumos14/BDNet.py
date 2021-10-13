@@ -6,7 +6,7 @@ import numpy as np
 
 from AFSD.common.i3d_backbone import InceptionI3d
 from AFSD.common.config import config
-from AFSD.common.layers import Unit1D, Unit3D
+from AFSD.common.layers import Unit1D, Unit3D, TransformerHead
 from AFSD.prop_pooling.boundary_pooling_op import BoundaryMaxPooling
 
 num_classes = config['dataset']['num_classes']
@@ -428,6 +428,8 @@ class BDNet(nn.Module):
         self.scales = [1, 4, 4]
         self.use_edl = use_edl
         self.evidence = evidence
+        if self.use_edl:
+            self.out_layer = DirichletLayer(self.evidence, dim=-1)
 
     @staticmethod
     def weight_init(m):
@@ -494,25 +496,36 @@ class BDNet(nn.Module):
                     'prop_act': prop_act
                 }
             if self.use_edl:
-                unct = self.compute_uncertainty(conf)
-                prop_unct = self.compute_uncertainty(prop_conf)
+                unct = self.out_layer.compute_uncertainty(conf)
+                prop_unct = self.out_layer.compute_uncertainty(prop_conf)
                 out_dict.update({'unct': unct, 'prop_unct': prop_unct})
             return out_dict
 
-    def compute_uncertainty(self, logit):
-        alpha = self.evidence_func(logit) + 1  # alpha = e + 1
-        uncertainty = self.num_classes / alpha.sum(-1)  # u = K / S
-        return uncertainty
+
+class DirichletLayer(nn.Module):
+    def __init__(self, evidence='exp', dim=-1):
+        super(DirichletLayer, self).__init__()
+        self.evidence = evidence
+        self.dim = dim
 
     def evidence_func(self, logit):
         if self.evidence == 'relu':
             return F.relu(logit)
-
         if self.evidence == 'exp':
             return torch.exp(torch.clamp(logit, -10, 10))
-
         if self.evidence == 'softplus':
             return F.softplus(logit)
+    
+    def compute_uncertainty(self, logit):
+        num_classes = logit.size(-1)
+        alpha = self.evidence_func(logit) + 1  # alpha = e + 1
+        uncertainty = num_classes / alpha.sum(-1)  # u = K / S
+        return uncertainty
+
+    def forward(self, logit):
+        alpha = self.evidence_func(logit) + 1
+        conf = alpha / alpha.sum(dim=self.dim, keepdim=True)
+        return conf
 
 
 def test_inference(repeats=3, clip_frames=256):
