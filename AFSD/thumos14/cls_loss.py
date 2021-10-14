@@ -194,25 +194,26 @@ class EvidenceLoss(nn.Module):
             weight = alpha_class * torch.pow(torch.sub(1.0, pred_scores), self.gamma)  # (N,)
             cls_loss = torch.sum(y * weight.unsqueeze(-1) * (func(S) - func(alpha)), dim=1)
         elif self.with_ghm:
-            alpha_pred = alpha.detach()  # (N, K)
+            alpha_pred = alpha.detach().clone()  # (N, K)
             uncertainty = self.num_cls / alpha_pred.sum(dim=-1, keepdim=True)  # (N, 1)
+            weights = torch.pow(1 / alpha_pred - uncertainty, 2)
             # gradient length
-            grad_norm = torch.abs(1 / alpha_pred - uncertainty) * y  # y_ij * (1/alpha_ij - u_i)
-            n = 0  # n valid bins
-            weights = torch.zeros_like(alpha)
-            for i in range(self.num_bins):
-                inds = (grad_norm >= self.edges[i]) & (grad_norm < self.edges[i+1])
-                num_in_bin = inds.sum().item()
-                if num_in_bin > 0:
-                    if self.momentum > 0:
-                        self.acc_sum[i] = self.momentum * self.acc_sum[i] \
-                            + (1 - self.momentum) * num_in_bin
-                        weights[inds] = 1.0 / self.acc_sum[i]
-                    else:
-                        weights[inds] = 1.0 / num_in_bin
-                    n += 1
-            if n > 0:
-                weights = weights / n
+            # grad_norm = torch.abs(1 / alpha_pred - uncertainty) * y  # y_ij * (1/alpha_ij - u_i)
+            # n = 0  # n valid bins
+            # weights = torch.zeros_like(alpha)
+            # for i in range(self.num_bins):
+            #     inds = (grad_norm >= self.edges[i]) & (grad_norm < self.edges[i+1])
+            #     num_in_bin = inds.sum().item()
+            #     if num_in_bin > 0:
+            #         if self.momentum > 0:
+            #             self.acc_sum[i] = self.momentum * self.acc_sum[i] \
+            #                 + (1 - self.momentum) * num_in_bin
+            #             weights[inds] = 1.0 / self.acc_sum[i]
+            #         else:
+            #             weights[inds] = 1.0 / num_in_bin
+            #         n += 1
+            # if n > 0:
+            #     weights = weights / n
             # compute the weighted EDL loss
             cls_loss = torch.sum(y * weights * (func(S) - func(alpha)), dim=1)
         else:

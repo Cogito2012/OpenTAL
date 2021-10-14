@@ -17,7 +17,7 @@ do
         # run RGB model
         echo "Test the RGB model on Thumos14 Open Set (Split=${SPLIT}):"
         CUDA_VISIBLE_DEVICES=${GPU_ID} python AFSD/thumos14/test.py \
-            configs/thumos14_open_edl_oshead_15kc.yaml \
+            configs/thumos14_open_edl_oshead_ghm.yaml \
             --open_set \
             --split=${SPLIT} \
             --output_json=thumos14_open_rgb.json 
