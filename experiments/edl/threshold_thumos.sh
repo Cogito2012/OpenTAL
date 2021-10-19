@@ -10,7 +10,7 @@ ALL_SPLITS="0 1 2 4"
 
 for SPLIT in ${ALL_SPLITS}
 do
-    PRED_FILE=output/edl_droput_15kc/split_${SPLIT}/thumos14_open_trainset.json
+    PRED_FILE=output/edl_15kc/split_${SPLIT}/thumos14_open_trainset.json
     if [ ! -f $PRED_FILE ]; then
         # run RGB model
         echo "Threshold the RGB model on Thumos14 Open Set (Split=${SPLIT}):"

@@ -124,6 +124,24 @@ def resume_training(resume, model, optimizer):
     return start_epoch
 
 
+def get_grad_norm(model):
+    total_norm = 0.0
+    for p in model.parameters():
+        if p.grad is not None and p.requires_grad:
+            param_norm = p.grad.detach().data.norm(2)
+            total_norm += param_norm ** 2
+    total_norm = total_norm ** 0.5
+    return total_norm
+
+
+def get_trainable_params(model):
+    params = []
+    for k, v in model.named_parameters():
+        if v.requires_grad:
+            params.append(v)
+    return params
+
+
 def calc_bce_loss(start, end, scores):
     start = torch.tanh(start).mean(-1)
     end = torch.tanh(end).mean(-1)
@@ -220,14 +238,17 @@ def run_one_epoch(epoch, net, optimizer, data_loader, epoch_step_num, training=T
                 cost = cost + loss_trip
                 loss_trip_val += loss_trip.cpu().detach().numpy()
 
+            cur_iter = i * epoch_step_num + n_iter
             if training:
                 optimizer.zero_grad()
                 cost.backward()
+                grad_norm = get_grad_norm(net)
+                tb_writer.add_scalars(f'stats/grad_norm', {'grad_norm': grad_norm.mean().item()}, cur_iter)
+                # nn.utils.clip_grad_norm_(get_trainable_params(net), 20)
                 optimizer.step()
 
             # record the loss in tensorboards
             if config['testing']['split'] == 0:
-                cur_iter = i * epoch_step_num + n_iter
                 tb_writer.add_scalars(f'train_loss/coarse/loss_loc', {'loss_loc': loss_l.mean().item()}, cur_iter)
                 tb_writer.add_scalars(f'train_loss/coarse/loss_cls', {'loss_cls': loss_c.mean().item()}, cur_iter)
                 tb_writer.add_scalars(f'train_loss/refined/loss_loc', {'loss_loc': loss_prop_l.mean().item()}, cur_iter)

@@ -83,7 +83,10 @@ def to_array(data_dict):
         return []
     result_dict = {}
     for k, v in data_dict.items():
-        result_dict[k] = v.cpu().numpy()
+        if v is not None:
+            result_dict[k] = v.cpu().numpy()
+        else:
+            result_dict[k] = v
     return result_dict
 
 def to_tensor(data_dict):
@@ -91,7 +94,10 @@ def to_tensor(data_dict):
         return None
     result_dict = {}
     for k, v in data_dict.items():
-        result_dict[k] = torch.from_numpy(v)
+        if v is not None:
+            result_dict[k] = torch.from_numpy(v)
+        else:
+            result_dict[k] = v
     return result_dict
 
 def all_to_tensors(outputs):
@@ -160,13 +166,13 @@ def compute_threshold(result_dict):
     return threshold
 
 
-def post_process(inference_result, conf_thresh=0.01, phase='train'):
+def post_process(inference_result, param=0.5, phase='train'):
     out_layer = DirichletLayer(evidence=cfg.evidence, dim=-1) if cfg.use_edl else nn.Softmax(dim=-1)
     class_range = range(1, cfg.num_classes) if not cfg.os_head else range(0, cfg.num_classes)
     _, idx_to_class = get_class_index_map(cfg.cls_idx_known)
 
     result_dict = {}
-    for out in tqdm.tqdm(inference_result, total=len(inference_result), desc=f'{phase} phase with conf_thresh={conf_thresh}'):
+    for out in tqdm.tqdm(inference_result, total=len(inference_result), desc=f'{phase} phase with param={param}'):
         video_name = out['name']
         sample_fps = out['fps']
         output = [[] for cl in range(cfg.num_classes)]
@@ -178,7 +184,7 @@ def post_process(inference_result, conf_thresh=0.01, phase='train'):
                                                                 center, offset, sample_fps, cfg.clip_length, cfg.num_classes, score_func=out_layer, use_edl=cfg.use_edl, os_head=cfg.os_head)
             # filtering out clip-level predictions with low confidence
             for cl in class_range:  # from 1 to K+1 by default, or 0 to K for os_head
-                segments = filtering(decoded_segments, conf_scores[cl], uncertainty, actionness, conf_thresh, use_edl=cfg.use_edl, os_head=cfg.os_head)  # (N,5)
+                segments = filtering(decoded_segments, conf_scores[cl], uncertainty, actionness, cfg.conf_thresh, use_edl=cfg.use_edl, os_head=cfg.os_head)  # (N,5)
                 if segments is None:
                     continue
                 output[cl].append(segments)
@@ -195,18 +201,19 @@ def post_process(inference_result, conf_thresh=0.01, phase='train'):
         output_dict = {"version": "THUMOS14", "results": dict(result_dict), "external_data": {}}
         temp_dir = os.path.join(cfg.output_path, 'temp')
         os.makedirs(temp_dir, exist_ok=True)
-        pred_file = os.path.join(temp_dir, f'thumos14_open_rgb-{conf_thresh}.json')
+        pred_file = os.path.join(temp_dir, f'thumos14_open_rgb-{param}.json')
         with open(pred_file, "w") as f:
             json.dump(output_dict, f)
         return pred_file
     
 
-def search_job(output_train, output_test, conf_thresh):
-    # get the threshold from trainset inference results
-    ood_thresh = post_process(output_train, conf_thresh=conf_thresh, phase='train')
+def search_job(output_train, output_test, param):
+    # # get the threshold from trainset inference results
+    # ood_thresh = post_process(output_train, param=param, phase='train')
+    ood_thresh = param
 
     # get the post process results for evaluation
-    pred_file = post_process(output_test, conf_thresh=conf_thresh, phase='test')
+    pred_file = post_process(output_test, param=param, phase='test')
 
     # evaluate on test set
     tious = [0.3, 0.4, 0.5, 0.6, 0.7]
@@ -222,7 +229,7 @@ def search_job(output_train, output_test, conf_thresh):
         verbose=False)
     mAPs, average_mAP, ap = anet_detection.evaluate(type='AP')
     
-    print(f'Conf threshold: {conf_thresh:.3f}, OOD threshold: {ood_thresh:.6f}, Average mAP: {average_mAP*100:.3f}%')
+    print(f'Param: {param:.3f}, OOD threshold: {ood_thresh:.6f}, Average mAP: {average_mAP*100:.3f}%')
     return ood_thresh, average_mAP
 
 
@@ -245,8 +252,8 @@ if __name__ == '__main__':
     output_test = all_to_tensors(output_test)
 
     gt_file = cfg.gt_all_json if cfg.open_set else cfg.gt_known_json.format(id=cfg.split)
-    # search for conf_thresh
-    candidates = np.arange(0.001, 0.201, step=0.001)
+    # search for nms_thresh
+    candidates = np.arange(0.8, 1.0, step=0.02)
     ood_thresh_all, average_mAP_all = [], []
 
     # Parallel not working!
@@ -256,8 +263,8 @@ if __name__ == '__main__':
     #     ood_thresh_all.append(res[0])
     #     average_mAP_all.append(res[1])
 
-    for conf_thresh in candidates:
-        ood_thresh, average_mAP = search_job(output_train, output_test, conf_thresh)
+    for param in candidates:
+        ood_thresh, average_mAP = search_job(output_train, output_test, param)
         ood_thresh_all.append(ood_thresh)
         average_mAP_all.append(average_mAP)
 
@@ -265,4 +272,4 @@ if __name__ == '__main__':
     best_conf_thresh = candidates[idx]
     ood_thresh_cur = ood_thresh_all[idx]
     best_mAP = average_mAP_all[idx]
-    print(f'\nBest Conf threshold: {best_conf_thresh:.3f}, Current OOD threshold: {ood_thresh_cur:.6f}, Best Average mAP: {best_mAP*100:.3f}%')
+    print(f'\nBest Param: {best_conf_thresh:.3f}, Current OOD threshold: {ood_thresh_cur:.6f}, Best Average mAP: {best_mAP*100:.3f}%')

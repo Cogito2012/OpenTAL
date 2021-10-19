@@ -119,17 +119,19 @@ def decode_predictions(loc, prop_loc, priors, conf, prop_conf, unct, prop_unct, 
     # compute uncertainty
     uncertainty = (unct + prop_unct) / 2.0 if use_edl else None
 
-    # compute actionness
-    act_score = act.sigmoid()
-    prop_act_score = prop_act.sigmoid()
-    actionness = (act_score + prop_act_score) / 2.0 if os_head else None
+    actionness = None
+    if os_head:
+        # compute actionness
+        act_score = act.sigmoid()
+        prop_act_score = prop_act.sigmoid()
+        actionness = (act_score + prop_act_score) / 2.0
 
     conf = score_func(conf)
     prop_conf = score_func(prop_conf)
     center = center.sigmoid()
 
     conf = (conf + prop_conf) / 2.0
-    conf = conf * center * actionness.unsqueeze(-1)
+    conf = conf * center * actionness.unsqueeze(-1) if os_head else conf * center
     conf = conf.view(-1, num_classes).transpose(1, 0)
     conf_scores = conf.clone()
     return decoded_segments, conf_scores, uncertainty, actionness
@@ -165,7 +167,7 @@ def get_video_detections(output, idx_to_class, num_classes, top_k, nms_sigma, us
         if len(output[cl]) == 0:
             continue
         tmp = torch.cat(output[cl], 0)
-        tmp, count = softnms_v2(tmp, sigma=nms_sigma, top_k=top_k, use_edl=use_edl, os_head=os_head)
+        tmp, count = softnms_v2(tmp, sigma=nms_sigma, top_k=top_k, score_threshold=0.001, use_edl=use_edl, os_head=os_head)
         res[cl, :count] = tmp
         sum_count += count
 

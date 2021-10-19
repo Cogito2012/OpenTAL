@@ -2,7 +2,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch
 import math
-from torch.nn import TransformerEncoder, TransformerEncoderLayer
+from torch.nn import TransformerEncoder, TransformerEncoderLayer, LayerNorm
 from torch.nn.modules import activation
 
 
@@ -244,18 +244,17 @@ class PositionalEncoding(nn.Module):
 class TransformerHead(nn.Module):
     def __init__(self, in_channels,
                  output_channels,
-                 ntokens,
                  max_poslen=256,
                  nheads=8,
                  dropout=0.1,
-                 nlayers=6,
+                 nlayers=2,
                  activation_fn=F.relu
         ):
         super(TransformerHead, self).__init__()
         self.pos_encoder = PositionalEncoding(in_channels, dropout, max_len=max_poslen)
+        self.layer_norm = LayerNorm(in_channels)
         encoder_layers = TransformerEncoderLayer(in_channels, nheads, int(in_channels / 2), dropout)
         self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
-        self.encoder = nn.Embedding(ntokens, in_channels)
         self.ninp = in_channels
         self.decoder = nn.Linear(in_channels, output_channels)
         self.activation_fn=activation_fn
@@ -264,15 +263,49 @@ class TransformerHead(nn.Module):
 
     def init_weights(self):
         initrange = 0.1
-        nn.init.uniform_(self.encoder.weight, -initrange, initrange)
         nn.init.zeros_(self.decoder.weight)
         nn.init.uniform_(self.decoder.weight, -initrange, initrange)
 
+    # def init_weights(self, init_type='kaiming_normal'):
+    #     """Initialize Transformer module.
+    #     :param torch.nn.Module model: transformer instance
+    #     :param str init_type: initialization type
+    #     """
+    #     # if init_type == "pytorch":
+    #     #     return
+
+    #     # weight init
+    #     for p in self.parameters():
+    #         if p.dim() > 1:
+    #             if init_type == "xavier_uniform":
+    #                 torch.nn.init.xavier_uniform_(p.data)
+    #             elif init_type == "xavier_normal":
+    #                 torch.nn.init.xavier_normal_(p.data)
+    #             elif init_type == "kaiming_uniform":
+    #                 torch.nn.init.kaiming_uniform_(p.data, nonlinearity="relu")
+    #             elif init_type == "kaiming_normal":
+    #                 torch.nn.init.kaiming_normal_(p.data, nonlinearity="relu")
+    #             else:
+    #                 raise ValueError("Unknown initialization: " + init_type)
+    #     # bias init
+    #     for p in self.parameters():
+    #         if p.dim() == 1:
+    #             p.data.zero_()
+
+    #     # reset some modules with default init
+    #     for m in self.modules():
+    #         if isinstance(m, (torch.nn.Embedding, LayerNorm)):
+    #             m.reset_parameters()
+                
+
     def forward(self, src):
-        src = self.encoder(src) * math.sqrt(self.ninp)
-        src = self.pos_encoder(src)
-        output = self.transformer_encoder(src)
-        output = self.decoder(output)
+        """ src: size=(1, 512, T)
+        """
+        input = torch.einsum('bdt->tbd', src)
+        # input = self.pos_encoder(input)  # (64, 1, 512)
+        # input = self.layer_norm(input)
+        output = self.transformer_encoder(input) # (64, 1, 512)
+        output = self.decoder(output)   # (64, 1, 15)
         if self.activation_fn is not None:
             output = self.activation_fn(output)
         return output

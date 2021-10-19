@@ -9,10 +9,10 @@ GPU_ID=$1
 ALL_SPLITS="0"
 OOD_SCORING="uncertainty"
 
-PRED_FILE=output/edl_oshead_ghm/split_0/raw_outputs.json
+PRED_FILE=output/edl_oshead_ghm/split_0/raw_outputs.npz
 if [ ! -f $PRED_FILE ]; then
     # run RGB model
-    CUDA_VISIBLE_DEVICES=${GPU_ID} python AFSD/thumos14/conf_thresh.py \
+    CUDA_VISIBLE_DEVICES=${GPU_ID} python AFSD/thumos14/search_param.py \
         configs/thumos14_open_edl_oshead_tuned.yaml \
         --open_set \
         --split=0 \

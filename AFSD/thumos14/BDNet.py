@@ -15,6 +15,7 @@ freeze_bn_affine = config['model']['freeze_bn_affine']
 evidence = config['model']['evidence'] if 'evidence' in config['model'] else 'exp'
 dropout = config['model']['dropout'] if 'dropout' in config['model'] else 0.0
 os_head = config['model']['os_head'] if 'os_head' in config['model'] else False
+transformer = config['model']['transformer'] if 'transformer' in config['model'] else False
 
 layer_num = 6
 conv_channels = 512
@@ -123,6 +124,7 @@ class CoarsePyramid(nn.Module):
         self.dropout = dropout
         self.num_classes = num_cls
         self.os_head = os_head
+        self.transformer = transformer
         self.pyramids.append(nn.Sequential(
             Unit3D(
                 in_channels=feat_channels[0],
@@ -207,14 +209,20 @@ class CoarsePyramid(nn.Module):
             use_bias=True,
             activation_fn=None
         )
-        self.conf_head = Unit1D(
-            in_channels=out_channels,
-            output_channels=self.num_classes,
-            kernel_shape=3,
-            stride=1,
-            use_bias=True,
-            activation_fn=None
-        )
+        if self.transformer:
+            self.conf_head = TransformerHead(in_channels=out_channels,
+                output_channels=self.num_classes,
+                max_poslen=int(self.frame_num / 4),
+                activation_fn=None)
+        else:
+            self.conf_head = Unit1D(
+                in_channels=out_channels,
+                output_channels=self.num_classes,
+                kernel_shape=3,
+                stride=1,
+                use_bias=True,
+                activation_fn=None
+            )
         if self.os_head:
             self.actionness_head = Unit1D(
                 in_channels=out_channels,
