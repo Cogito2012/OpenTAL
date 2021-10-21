@@ -4,7 +4,7 @@ from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 if __name__ == '__main__':
     setup(
         name='AFSD',
-        version='1.0',
+        version='3.0',
         description='Learning Salient Boundary Feature for Anchor-free '
                     'Temporal Action Localization',
         author='Chuming Lin, Chengming Xu',

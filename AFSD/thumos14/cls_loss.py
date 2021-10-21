@@ -85,6 +85,7 @@ class EvidenceLoss(nn.Module):
         self.loss_type = cfg['loss_type']
         self.evidence = cfg['evidence']
         self.with_focal = cfg['with_focal']
+        self.soft_label = cfg['soft_label'] if 'soft_label' in cfg else 0.0
         self.with_ghm = cfg['with_ghm'] if 'with_ghm' in cfg else False
         self.eps = 1e-10
         if self.with_focal:
@@ -118,6 +119,8 @@ class EvidenceLoss(nn.Module):
         # one-hot embedding for the target
         y = torch.eye(self.num_cls).to(logit.device, non_blocking=True)
         y = y[target]  # (N, K+1)
+        y[y == 1] = 1 - self.soft_label
+        y[y == 0] = self.soft_label / (self.num_cls - 1)
         
         # get loss func
         loss, func = self.get_loss_func()

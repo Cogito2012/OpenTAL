@@ -187,7 +187,6 @@ class MultiSegmentLoss(nn.Module):
         else:  # empty, do not need to compute loss
             loss_c = torch.tensor(0.0).to(conf_p.device)
         
-        loss_act = torch.tensor(0.0).to(act_data.device)
         if self.os_head:
             act_scores = act_data.view(-1, 1)  # [N, 1]
             targets = inds_keep.to(torch.float32)  # [N, 1]
@@ -207,7 +206,6 @@ class MultiSegmentLoss(nn.Module):
         else:  # empty, do not need to compute loss
             loss_prop_c = torch.tensor(0.0).to(prop_conf_p.device)
         
-        loss_prop_act = torch.tensor(0.0).to(prop_act_data.device)
         if self.os_head:
             prop_act_scores = prop_act_data.view(-1, 1)  # [N, 1]
             targets = inds_keep.to(torch.float32)  # [N, 1]
@@ -220,8 +218,11 @@ class MultiSegmentLoss(nn.Module):
         loss_prop_l = loss_prop_l / PN if not self.size_average else loss_prop_l
         loss_prop_c = loss_prop_c / PN if not self.size_average else loss_prop_c
         loss_ct = loss_ct / N if not self.size_average else loss_ct
-        loss_act = loss_act / AN if not self.size_average else loss_act
-        loss_prop_act = loss_prop_act / PAN if not self.size_average else loss_prop_act
+        if self.os_head:
+            loss_act = loss_act / AN if not self.size_average else loss_act
+            loss_prop_act = loss_prop_act / PAN if not self.size_average else loss_prop_act
+        else:
+            loss_act, loss_prop_act = None, None
         
         # print(N, num_neg.sum())
         return loss_l, loss_c, loss_prop_l, loss_prop_c, loss_ct, loss_act, loss_prop_act
