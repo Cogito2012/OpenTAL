@@ -4,6 +4,7 @@ pwd_dir=$pwd
 cd ../../
 
 source activate afsd
+python setup.py develop
 
 GPU_ID=$1
 SPLIT=$2

@@ -80,6 +80,7 @@ class MultiSegmentLoss(nn.Module):
             self.cls_loss = FocalLoss_Ori(num_classes, balance_index=0, size_average=size_average, alpha=0.25)
         elif self.cls_loss_type == 'edl':
             self.cls_loss = EvidenceLoss(num_classes, edl_config, size_average=size_average)
+        self.iou_aware = True if self.cls_loss_type == 'edl' and self.cls_loss.iou_aware else False
         self.os_head = os_head
         if self.os_head:
             self.act_loss = ActionnessLoss(size_average=size_average, weight=0.1)
@@ -103,6 +104,9 @@ class MultiSegmentLoss(nn.Module):
         conf_t = torch.LongTensor(num_batch, num_priors).to(loc_data.device)
         prop_loc_t = torch.Tensor(num_batch, num_priors, 2).to(loc_data.device)
         prop_conf_t = torch.LongTensor(num_batch, num_priors).to(loc_data.device)
+        iou_pred = None
+        if self.iou_aware:
+            iou_pred = torch.Tensor(num_priors, num_batch).to(loc_data.device)
 
         with torch.no_grad():
             for idx in range(num_batch):
@@ -130,6 +134,8 @@ class MultiSegmentLoss(nn.Module):
                 conf_t[idx] = conf
 
                 iou = iou_loss(pre_loc, loc_t[idx], loss_type='calc iou')  # [num_priors]
+                if self.iou_aware:
+                    iou_pred[:, idx] = iou
                 prop_conf = conf.clone()
                 prop_conf[iou < self.overlap_thresh] = 0
                 prop_conf_t[idx] = prop_conf
@@ -202,7 +208,7 @@ class MultiSegmentLoss(nn.Module):
             prop_conf_t = prop_conf_t[inds_keep].unsqueeze(-1) - 1  # (M,1), starting from 0
             prop_conf_p = prop_conf_p[inds_keep.squeeze()]  # (M,15)
         if prop_conf_t.numel() > 0:
-            loss_prop_c = self.cls_loss(prop_conf_p, prop_conf_t)
+            loss_prop_c = self.cls_loss(prop_conf_p, prop_conf_t, iou=iou_pred)
         else:  # empty, do not need to compute loss
             loss_prop_c = torch.tensor(0.0).to(prop_conf_p.device)
         

@@ -1,0 +1,56 @@
+dataset:
+  num_classes: 16
+  class_info_path: ./datasets/thumos14/annotations_open/split_{id:d}/Class_Index_Known.txt
+  training:
+    video_mp4_path: ./datasets/thumos14/validation/
+    video_info_path: ./datasets/thumos14/annotations_open/val_video_info.csv
+    video_anno_path: ./datasets/thumos14/annotations_open/split_{id:d}/val_Annotation_known.csv
+    video_data_path: ./datasets/thumos14/validation_npy/
+    clip_length: 256
+    clip_stride: 30
+    crop_size: 96
+  testing:
+    video_mp4_path: ./datasets/thumos14/test/
+    video_info_path: ./datasets/thumos14/annotations_open/test_video_info.csv
+    video_anno_path: ./datasets/thumos14/annotations_open/split_{id:d}/test_Annotation_known.csv  # for closed-set eval
+    video_anno_open_path: ./datasets/thumos14/annotations_open/test_Annotation_open.csv  # for open-set eval
+    video_data_path: ./datasets/thumos14/test_npy/
+    crop_size: 96
+    clip_length: 256
+    clip_stride: 128
+
+model:
+  in_channels: 3
+  freeze_bn: true
+  freeze_bn_affine: true
+  use_edl: true
+  evidence: exp
+  dropout: 0
+  backbone_model: ./models/i3d_models/rgb_imagenet.pt
+
+training:
+  batch_size: 1
+  learning_rate: 1e-5
+  weight_decay: 1e-3
+  max_epoch: 25
+  focal_loss: false
+  edl_loss: true
+  edl_config:
+    evidence: exp
+    loss_type: log
+    soft_label: 0
+    iou_aware: true
+    with_focal: false
+    alpha: 0.25
+    gamma: 2
+  checkpoint_path: ./models/thumos14/edl_iou/split_{id:d}/
+  random_seed: 2020
+
+testing:
+  conf_thresh: 0.01
+  top_k: 5000
+  nms_thresh: 0.5
+  nms_sigma: 0.5
+  checkpoint_path: ./models/thumos14/edl_iou/split_{id:d}/checkpoint-latest.ckpt
+  output_path: ./output/edl_iou/split_{id:d}
+  output_json: detection_results.json

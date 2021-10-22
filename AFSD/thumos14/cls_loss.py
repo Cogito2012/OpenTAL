@@ -86,6 +86,7 @@ class EvidenceLoss(nn.Module):
         self.evidence = cfg['evidence']
         self.with_focal = cfg['with_focal']
         self.soft_label = cfg['soft_label'] if 'soft_label' in cfg else 0.0
+        self.iou_aware = cfg['iou_aware'] if 'iou_aware' in cfg else False
         self.with_ghm = cfg['with_ghm'] if 'with_ghm' in cfg else False
         self.eps = 1e-10
         if self.with_focal:
@@ -103,7 +104,7 @@ class EvidenceLoss(nn.Module):
         self.size_average = size_average
     
 
-    def forward(self, logit, target):
+    def forward(self, logit, target, iou=None):
         """ logit, shape=(N, K+1)
             target, shape=(N, 1)
         """
@@ -127,7 +128,7 @@ class EvidenceLoss(nn.Module):
 
         # compute losses
         pred_alpha = self.evidence_func(logit) + 1  # (alpha = e + 1)
-        loss_out = loss(y, pred_alpha, func=func, target=target)
+        loss_out = loss(y, pred_alpha, func=func, target=target, iou=iou)
         out_dict.update(loss_out)
 
         # accumulate total loss
@@ -161,7 +162,7 @@ class EvidenceLoss(nn.Module):
             return F.softplus(logit)
         
 
-    def mse_loss(self, y, alpha, func=None, target=None):
+    def mse_loss(self, y, alpha, func=None, target=None, iou=None):
         """Used only for loss_type == 'mse'
         y: the one-hot labels (batchsize, num_classes)
         alpha: the predictions (batchsize, num_classes)
@@ -180,7 +181,7 @@ class EvidenceLoss(nn.Module):
         return losses
 
 
-    def edl_loss(self, y, alpha, func=torch.log, target=None):
+    def edl_loss(self, y, alpha, func=torch.log, target=None, iou=None):
         """Used for both loss_type == 'log' and loss_type == 'digamma'
         y: the one-hot labels (batchsize, num_classes)
         alpha: the predictions (batchsize, num_classes)
@@ -226,6 +227,13 @@ class EvidenceLoss(nn.Module):
         else:
             cls_loss = torch.sum(cls_loss)
         losses.update({'cls_loss': cls_loss})
+        # IoU aware regularizer
+        if self.iou_aware and iou is not None:
+            iou[iou < 0] = 1e-3  # background proposals with negative iou (no overlapping)
+            uncertainty = self.num_cls / alpha.sum(dim=-1, keepdim=True)  # (N, 1)
+            iou_reg = - iou * torch.log(1-uncertainty) - (1-iou) * torch.log(uncertainty)
+            iou_reg = torch.mean(iou_reg) if self.size_average else torch.sum(iou_reg)
+            losses.update({'iou_reg_loss': iou_reg})
         return losses
 
 

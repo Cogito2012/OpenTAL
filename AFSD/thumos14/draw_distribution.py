@@ -478,6 +478,40 @@ def split_uncertainties(prediction_all, ground_truth_all, video_lst, tiou_thr=0.
     return known_uncertainty, unknown_uncertainty, background_uncertainty
 
 
+def split_uncertainties_correct(result_dict, ground_truth_all, tiou_thr=0.5):
+    def _get_groundtruth_with_vid(ground_truth_by_vid, video_name):
+        try:
+            return ground_truth_by_vid.get_group(video_name).reset_index(drop=True)
+        except:
+            return []
+    ground_truth_by_vid = ground_truth_all.groupby('video-id')
+    known_uncertainty, unknown_uncertainty, background_uncertainty = [], [], []
+    for video_name, prediction in result_dict.items():
+        # get the ground truth of this video
+        ground_truth = _get_groundtruth_with_vid(ground_truth_by_vid, video_name)
+        if len(ground_truth) == 0:  # no ground truth, ignore!
+            continue
+        lock_gt = np.ones((len(ground_truth))) * -1
+        for idx, this_pred in enumerate(prediction):
+            uncertainty = this_pred['uncertainty']
+            tiou_arr = segment_iou(np.array(this_pred['segment']),
+                                   ground_truth[['t-start', 't-end']].values)
+            tiou_sorted_idx = tiou_arr.argsort()[::-1]  # tIoU in a decreasing order
+            for jdx in tiou_sorted_idx:
+                if tiou_arr[jdx] < tiou_thr:  # background segment
+                    background_uncertainty.append(uncertainty)
+                    break
+                if lock_gt[jdx] >= 0:
+                    continue  # this gt was matched before, continue to select the second largest tIoU match
+                label_gt = int(ground_truth.loc[jdx]['label'])
+                if label_gt == 0: # unknown foreground
+                    unknown_uncertainty.append(uncertainty)
+                else:  # known foreground
+                    known_uncertainty.append(uncertainty)
+                lock_gt[jdx] = idx
+                break
+    return known_uncertainty, unknown_uncertainty, background_uncertainty
+
 
 if __name__ == '__main__':
 
@@ -519,16 +553,29 @@ if __name__ == '__main__':
     # get the post process results for evaluation
     result_dict, pred_file = post_process(output_test, phase='test')
 
-    activity_index = get_activity_index(cfg.cls_idx_known)
+    # plot all results after post-processing
+    all_uncertainty = []
+    for video_name, proposal_list in result_dict.items():
+        for prop in proposal_list:
+            if cfg.use_edl:
+                uncertainty = prop['uncertainty']
+                all_uncertainty.append(uncertainty)
+    all_uncertainty = np.array(all_uncertainty)
+    plot_unct_dist(os.path.join(fig_dir, 'unct_dist_postprocessing_all.png'), [all_uncertainty], colors=['red'], labels=['All'])
 
+    activity_index = get_activity_index(cfg.cls_idx_known)
     gt_file = cfg.gt_all_json if cfg.open_set else cfg.gt_known_json.format(id=cfg.split)
     ground_truth_all, video_lst = load_gt_data(gt_file, activity_index)
+    
+    # Method 1: Use naive python dictionary and list
+    known_uncertainty, unknown_uncertainty, background_uncertainty = split_uncertainties_correct(result_dict, ground_truth_all, tiou_thr=0.5)
 
-    prediction_all = gather_valid_preds(result_dict, video_lst, activity_index)
+    # Method 2: From Official Evaluation Code (GT matching based on pd.DataFrame format of prediction)
+    # prediction_all = gather_valid_preds(result_dict, video_lst, activity_index)
+    # known_uncertainty, unknown_uncertainty, background_uncertainty = split_uncertainties(prediction_all, ground_truth_all, video_lst, tiou_thr=0.5)
 
-    known_uncertainty, unknown_uncertainty, background_uncertainty = split_uncertainties(prediction_all, ground_truth_all, video_lst, tiou_thr=0.5)
     # plot 
     plot_unct_dist(os.path.join(fig_dir, 'unct_dist_final.png'), [known_uncertainty, unknown_uncertainty, background_uncertainty],
         colors=['green', 'red', 'blue'], labels=['Known', 'Unknown', 'Background'])
-    plot_unct_dist(os.path.join(fig_dir, 'unct_dist_nobg.png'), [known_uncertainty, unknown_uncertainty],
+    plot_unct_dist(os.path.join(fig_dir, 'unct_dist_final_nobg.png'), [known_uncertainty, unknown_uncertainty],
         colors=['green', 'red'], labels=['Known', 'Unknown'])
