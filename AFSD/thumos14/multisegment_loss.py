@@ -208,9 +208,13 @@ class MultiSegmentLoss(nn.Module):
             prop_conf_t = prop_conf_t[inds_keep].unsqueeze(-1) - 1  # (M,1), starting from 0
             prop_conf_p = prop_conf_p[inds_keep.squeeze()]  # (M,15)
         if prop_conf_t.numel() > 0:
-            loss_prop_c = self.cls_loss(prop_conf_p, prop_conf_t, iou=iou_pred)
+            loss_prop_c = self.cls_loss(prop_conf_p, prop_conf_t)
         else:  # empty, do not need to compute loss
             loss_prop_c = torch.tensor(0.0).to(prop_conf_p.device)
+
+        if self.iou_aware:
+            logit_pred = prop_conf_data.view(-1, num_classes)
+            loss_iouc = self.cls_loss.iou_calib(logit_pred, iou_pred.view(-1), mean=True)
         
         if self.os_head:
             prop_act_scores = prop_act_data.view(-1, 1)  # [N, 1]
@@ -223,6 +227,8 @@ class MultiSegmentLoss(nn.Module):
         loss_c = loss_c / N if not self.size_average else loss_c
         loss_prop_l = loss_prop_l / PN if not self.size_average else loss_prop_l
         loss_prop_c = loss_prop_c / PN if not self.size_average else loss_prop_c
+        if self.iou_aware:
+            loss_prop_c += loss_iouc
         loss_ct = loss_ct / N if not self.size_average else loss_ct
         if self.os_head:
             loss_act = loss_act / AN if not self.size_average else loss_act

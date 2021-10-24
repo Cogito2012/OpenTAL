@@ -410,7 +410,8 @@ def load_gt_data(ground_truth_filename, activity_index):
                     't-start': t_start_lst,
                     't-end': t_end_lst,
                     'label': label_lst})
-    return ground_truth, video_lst
+    unique_videos = list(set(video_lst))
+    return ground_truth, unique_videos
 
 
 def gather_valid_preds(result_dict, video_lst, activity_index):
