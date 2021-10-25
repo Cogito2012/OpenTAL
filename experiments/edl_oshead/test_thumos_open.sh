@@ -9,7 +9,7 @@ python setup.py develop
 GPU_ID=$1
 ALL_SPLITS="0"
 EXP_TAG="edl_oshead_iou"
-OOD_SCORING="uncertainty"
+OOD_SCORING="uncertainty_actionness"
 
 for SPLIT in ${ALL_SPLITS}
 do

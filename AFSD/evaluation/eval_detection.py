@@ -3,6 +3,7 @@
 # Small modification from ActivityNet Code
 
 import json
+from pickle import APPEND
 import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed
@@ -12,6 +13,7 @@ from tqdm import tqdm
 from .utils_eval import get_blocked_videos
 from .utils_eval import interpolated_prec_rec
 from .utils_eval import segment_iou
+from sklearn.metrics import average_precision_score, roc_auc_score
 
 import warnings
 warnings.filterwarnings("ignore", message="numpy.dtype size changed")
@@ -152,7 +154,7 @@ class ANETdetection(object):
 
         # Read predictions.
         video_lst, t_start_lst, t_end_lst = [], [], []
-        label_lst, score_lst, uncertainty_lst, actness_lst = [], [], [], []
+        label_lst, score_lst, uncertainty_lst, actness_lst, ood_score_lst = [], [], [], [], []
         for videoid, v in data['results'].items():
             if videoid in self.blocked_videos:
                 continue
@@ -171,6 +173,7 @@ class ANETdetection(object):
                     res_score = 1 - result['uncertainty'] * result['actionness']
                     uncertainty_lst.append(result['uncertainty'])
                     actness_lst.append(result['actionness'])
+                ood_score_lst.append(res_score)
                 if self.openset and res_score < self.ood_threshold:
                     label = self.activity_index['__unknown__']  # reject the unknown
                 else:
@@ -184,7 +187,8 @@ class ANETdetection(object):
                                    't-start': t_start_lst,
                                    't-end': t_end_lst,
                                    'label': label_lst,
-                                   'score': score_lst}
+                                   'score': score_lst,
+                                   'ood_score': ood_score_lst}
         if self.ood_scoring in ['uncertainty', 'uncertainty_actionness']:
             pred_dict.update({'uncertainty': uncertainty_lst})
         if self.ood_scoring == 'uncertainty_actionness':
@@ -230,6 +234,12 @@ class ANETdetection(object):
         # print(fp, tp)
         return ap
 
+    def wrapper_compute_auc_scores(self):
+        unique_videos = list(set(self.video_lst))
+        au_roc, au_pr = compute_auc_scores(self.ground_truth, self.prediction, unique_videos, tiou_thresholds=self.tiou_thresholds)
+        return au_roc, au_pr
+
+
 
     def wrapper_compute_wilderness_impact(self):
         """Computes wilderness impact for each class in the subset.
@@ -254,6 +264,9 @@ class ANETdetection(object):
             self.mAP = self.ap.mean(axis=1)
             self.average_mAP = self.mAP.mean()
             return self.mAP, self.average_mAP, self.ap
+        elif type == 'AUC':
+            self.au_roc, self.au_pr = self.wrapper_compute_auc_scores()
+            return self.au_roc, self.au_pr
         elif type == 'WI':
             assert self.openset, 'Wilderness Impact Cannot be Evaluated for Closed Set!'
             self.wi = self.wrapper_compute_wilderness_impact()
@@ -344,6 +357,64 @@ def compute_average_precision_detection(ground_truth, prediction, tiou_threshold
 
 
     return ap
+
+
+def compute_auc_scores(ground_truth_all, prediction_all, video_list, tiou_thresholds=np.linspace(0.5, 0.95, 10)):
+    """ Compute the Area Under the Curves (ROC and PR)
+    """
+    ground_truth_by_vid = ground_truth_all.groupby('video-id')
+    prediction_by_vid = prediction_all.groupby('video-id')
+
+    def _get_predictions_with_vid(prediction_by_vid, video_name):
+        """Get all predicitons of the given video. Return empty DataFrame if there
+        is no predcitions with the given video.
+        """
+        try:
+            return prediction_by_vid.get_group(video_name).reset_index(drop=True)
+        except:
+            return pd.DataFrame()
+
+    # for each pred label, find the ground truth label
+    pred_scores = [{'bg': [], 'known': [], 'unknown': []} for _ in tiou_thresholds]
+    gt_scores = [{'bg': [], 'known': [], 'unknown': []} for _ in tiou_thresholds]
+    for video_name in tqdm(video_list, total=len(video_list), desc='Compute AUC'):
+        ground_truth = ground_truth_by_vid.get_group(video_name).reset_index()
+        prediction = _get_predictions_with_vid(prediction_by_vid, video_name)
+        if prediction.empty:
+            continue
+        lock_gt = np.ones((len(ground_truth))) * -1
+        for idx, this_pred in prediction.iterrows():
+            score = this_pred['ood_score']
+            tiou_arr = segment_iou(this_pred[['t-start', 't-end']].values,
+                                   ground_truth[['t-start', 't-end']].values)
+            tiou_sorted_idx = tiou_arr.argsort()[::-1]  # tIoU in a decreasing order
+            for tidx, tiou_thr in enumerate(tiou_thresholds):
+                for jdx in tiou_sorted_idx:
+                    if tiou_arr[jdx] < tiou_thr:  # background segment
+                        pred_scores[tidx]['bg'].append(score)
+                        gt_scores[tidx]['bg'].append(1.0)  # high uncertainty and low actionness (1-u*a)
+                        break
+                    if lock_gt[jdx] >= 0:
+                        continue  # this gt was matched before, continue to select the second largest tIoU match
+                    label_gt = int(ground_truth.loc[jdx]['label'])
+                    if label_gt == 0: # unknown foreground
+                        pred_scores[tidx]['unknown'].append(score)
+                        gt_scores[tidx]['unknown'].append(0.0)
+                    else:  # known foreground
+                        pred_scores[tidx]['known'].append(score)
+                        gt_scores[tidx]['known'].append(1.0)
+                    lock_gt[jdx] = idx
+                    break
+    # compute the AUC of PR and ROC curves between known and unknown
+    auc_pr = np.zeros((len(tiou_thresholds),), dtype=np.float32)
+    auc_roc = np.zeros((len(tiou_thresholds),), dtype=np.float32)
+    for tidx, _ in enumerate(tiou_thresholds):
+        preds = pred_scores[tidx]['known'] + pred_scores[tidx]['unknown']
+        labels = gt_scores[tidx]['known'] + gt_scores[tidx]['unknown']
+        if len(preds) > 0 and len(labels) > 0:
+            auc_pr[tidx] = average_precision_score(labels, preds)  # note that this is interpolated approximation of precision_recall_curve() + auc()
+            auc_roc[tidx] = roc_auc_score(labels, preds) if len(list(set(labels))) > 1 else 0  # at least there should be two classes
+    return auc_roc, auc_pr
 
 
 def compute_wilderness_impact1(ground_truth_all, prediction_all, video_list, known_classes, tiou_thresholds=np.linspace(0.5, 0.95, 10)):

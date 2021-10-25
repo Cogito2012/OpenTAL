@@ -1,5 +1,7 @@
 import argparse
 import pickle
+
+from matplotlib.pyplot import axis
 from AFSD.evaluation.eval_detection import ANETdetection
 import os, json
 import numpy as np
@@ -27,6 +29,8 @@ def read_threshold(trainset_result):
 
 mAPs_all, average_mAP_all = [], []
 mWIs_all, average_mWI_all = [], []
+aucROCs_all, average_aucROC_all = [], []
+aucPRs_all, average_aucPR_all = [], []
 for split in args.all_splits:
     # GT file and Pred file
     gt_file = args.gt_json if args.open_set else args.gt_json.format(id=split)
@@ -45,10 +49,16 @@ for split in args.all_splits:
         ood_scoring=args.ood_scoring,
         tiou_thresholds=tious,
         verbose=False)
-    print(f'Running the evaluation on split {split} with threshold {threshold:.12f}...')
+    print_str = f'Running the evaluation on split {split}'
+    if args.open_set:
+        print_str = print_str + f' with threshold {threshold:.12f}...'
+    print(print_str)
     # run evaluation
     mAPs, average_mAP, ap = anet_detection.evaluate(type='AP')
     if args.open_set:
+        # evaluate AUC of ROC and PR
+        auc_ROC, auc_PR = anet_detection.evaluate(type='AUC')
+        # evaluate the Wilderness Impact
         mWIs, average_mWI, wi = anet_detection.evaluate(type='WI')
         with open(os.path.join(os.path.dirname(pred_file), 'open_stats.pkl'), 'wb') as f:
             pickle.dump(anet_detection.stats, f, pickle.HIGHEST_PROTOCOL)
@@ -57,34 +67,55 @@ for split in args.all_splits:
     eval_filename = 'eval_open.txt' if args.open_set else 'eval.txt'
     with open(os.path.join(os.path.dirname(pred_file), eval_filename), 'w') as f:
         for (tiou, mAP) in zip(tious, mAPs):
-            f.writelines(f"mAP at tIoU {tiou} is {mAP:.5f}\n")
-        f.writelines(f"Average mAP is {average_mAP:.5f}")
+            f.writelines(f"tIoU={tiou}: mAP={mAP:.5f}\n")
+        f.writelines(f"Average mAP: {average_mAP:.5f}\n")
         if args.open_set:
             f.writelines('\n')
-            for (tiou, mWI) in zip(tious, mWIs):
-                f.writelines(f"mWI at tIoU {tiou} is {mWI:.5f}\n")
-            f.writelines(f"Average mWI is {average_mWI:.5f}")
+            for (tiou, mWI, auc_roc, auc_pr) in zip(tious, mWIs, auc_ROC, auc_PR):
+                f.writelines(f"tIoU={tiou}: mWI={mWI:.5f}, auc_roc={auc_roc:.5f}, auc_pr={auc_pr:.5f}\n")
+            f.writelines(f"Average mWI: {average_mWI:.5f}, Average AUC_ROC: {auc_ROC.mean():.5f}, Average AUC_PR: {auc_PR.mean():.5f}\n")
+    
     mAPs_all.append(mAPs)
     average_mAP_all.append(average_mAP)
     if args.open_set:
         mWIs_all.append(mWIs)
         average_mWI_all.append(average_mWI)
+        aucROCs_all.append(auc_ROC)
+        average_aucROC_all.append(auc_ROC.mean())
+        aucPRs_all.append(auc_PR)
+        average_aucPR_all.append(auc_PR.mean())
+
+def get_mean_std(data, axis=0):
+    mean = np.array(data).mean(axis=axis)
+    std = np.array(data).std(axis=axis)
+    return mean, std
 
 # print the averaged results
-mAPs_mean = np.array(mAPs_all).mean(axis=0)
-mAPs_std = np.array(mAPs_all).std(axis=0)
-average_mAP_mean = np.array(average_mAP_all).mean(axis=0)
-average_mAP_std = np.array(average_mAP_all).std(axis=0)
+mAPs_mean, mAPs_std = get_mean_std(mAPs_all, axis=0)
+average_mAP_mean, average_mAP_std = get_mean_std(average_mAP_all, axis=0)
 for (tiou, mean, std) in zip(tious, mAPs_mean, mAPs_std):
-    print(f"mAP at tIoU {tiou} is {mean:.5f} ({std:.5f})")
+    print(f"mAP(tIoU={tiou}): mean={mean:.5f}, std={std:.5f}")
 print(f"Average mAP is {average_mAP_mean:.5f} ({average_mAP_std:.5f})\n")
 
 if args.open_set:
-    # print the averaged results
-    mWIs_mean = np.array(mWIs_all).mean(axis=0)
-    mWIs_std = np.array(mWIs_all).std(axis=0)
-    average_mWI_mean = np.array(average_mWI_all).mean(axis=0)
-    average_mWI_std = np.array(average_mWI_all).std(axis=0)
+    # print the averaged results of mWI
+    mWIs_mean, mWIs_std = get_mean_std(mWIs_all, axis=0)
+    average_mWI_mean, average_mWI_std = get_mean_std(average_mWI_all, axis=0)
+    # print the averaged results of auc_ROC
+    aucROCs_mean, aucROCs_std = get_mean_std(aucROCs_all, axis=0)
+    average_aucROC_mean, average_aucROC_std = get_mean_std(average_aucROC_all, axis=0)
+    # print the averaged results of auc_ROC
+    aucPRs_mean, aucPRs_std = get_mean_std(aucPRs_all, axis=0)
+    average_aucPR_mean, average_aucPR_std = get_mean_std(average_aucPR_all, axis=0)
+
     for (tiou, mean, std) in zip(tious, mWIs_mean, mWIs_std):
-        print(f"mWI at tIoU {tiou} is {mean:.5f} ({std:.5f})")
-    print(f"Average mWI is {average_mWI_mean:.5f} ({average_mWI_std:.5f})\n")
+        print(f"mWI(tIoU={tiou}): mean={mean:.5f}, std={std:.5f}")
+    print(f"Average mWI = {average_mWI_mean:.5f} ({average_mWI_std:.5f})\n")
+
+    for (tiou, mean, std) in zip(tious, aucROCs_mean, aucROCs_std):
+        print(f"AUC_ROC(tIoU={tiou}): mean={mean:.5f}, std={std:.5f}")
+    print(f"Average AUC_ROC = {average_aucROC_mean:.5f} ({average_aucROC_std:.5f})\n")
+
+    for (tiou, mean, std) in zip(tious, aucPRs_mean, aucPRs_std):
+        print(f"AUC_PR(tIoU={tiou}): mean={mean:.5f}, std={std:.5f}")
+    print(f"Average AUC_PR = {average_aucPR_mean:.5f} ({average_aucPR_std:.5f})\n")

@@ -320,16 +320,43 @@ def post_process(inference_result, phase='train'):
         return result_dict, pred_file
     
 
-def split_uncertainties_stages(output_test, annos_known_test):
-    all_known_uncertainty, all_unknown_uncertainty = {'coarse': [], 'refined': []}, {'coarse': [], 'refined': []}
+def split_results_by_stages(output_test, annos_known_test, target='uncertainty'):
+
+    def get_result(input_dict, stage='coarse', target='uncertainty'):
+        if cfg.use_edl:
+            unct = input_dict['unct'][0] if stage == 'coarse' else input_dict['prop_unct'][0]  # (N,)
+        if cfg.os_head:
+            act = input_dict['act'][0] if stage == 'coarse' else input_dict['prop_act'][0]  # (N, 1)
+        
+        # get the output target
+        if target == 'uncertainty' and cfg.use_edl:
+            return unct
+        elif target == 'confidence':
+            out_layer = DirichletLayer(evidence=cfg.evidence, dim=-1) if cfg.use_edl else nn.Softmax(dim=-1)
+            # get the uncertainty, actionness, and conf_scores
+            logits = input_dict['conf'][0] if stage == 'coarse' else input_dict['prop_conf'][0]  # N x K
+            conf = out_layer(torch.from_numpy(logits))
+            center = torch.from_numpy(input_dict['center'][0])
+            conf = conf * center.sigmoid()  # N x K
+            conf = conf.numpy()
+            if cfg.os_head:
+                conf = conf * act
+            conf = np.max(conf, axis=-1)  # (N,)
+            return conf
+        elif target == 'uncertainty_actionness' and cfg.use_edl:
+            return unct * np.squeeze(act, axis=-1)  # (N,)
+        else:
+            raise NotImplementedError
+
+    all_known, all_unknown = {'coarse': [], 'refined': []}, {'coarse': [], 'refined': []}
     for output_video in output_test:
         out_rgb = output_video['rgb_out']
         offsetlist = output_video['offset']
         video_name = output_video['name']
         annos_cur_video = [anno for anno in annos_known_test if video_name in anno.values()]
         if len(annos_cur_video) == 0:  # clips in this video are all unknown/bg
-            all_unknown_uncertainty['coarse'].extend([clip_out['unct'][0] for clip_out in out_rgb])
-            all_unknown_uncertainty['refined'].extend([clip_out['prop_unct'][0] for clip_out in out_rgb])
+            all_unknown['coarse'].extend([get_result(clip_out, stage='coarse', target=target) for clip_out in out_rgb])
+            all_unknown['refined'].extend([get_result(clip_out, stage='refined', target=target) for clip_out in out_rgb])
             continue
         # the rest videos contain at least one known action
         for clip_out, offset in zip(out_rgb, offsetlist):  # iterate on clips
@@ -337,8 +364,8 @@ def split_uncertainties_stages(output_test, annos_known_test):
             annos_cur_clip = [anno['annos'] for anno in annos_cur_video if offset == anno['offset']]
             if len(annos_cur_clip) == 0:
                 # current clip is unknown/bg
-                all_unknown_uncertainty['coarse'].append(clip_out['unct'][0])
-                all_unknown_uncertainty['refined'].append(clip_out['prop_unct'][0])
+                all_unknown['coarse'].append(get_result(clip_out, stage='coarse', target=target))
+                all_unknown['refined'].append(get_result(clip_out, stage='refined', target=target))
                 continue
 
             # the rest are used in training (known or unknown/bg)
@@ -350,28 +377,32 @@ def split_uncertainties_stages(output_test, annos_known_test):
             # coarse stage
             inds_pos = conf_t.view(-1) > 0
             inds_neg = conf_t.view(-1) <= 0
-            all_known_uncertainty['coarse'].append(clip_out['unct'][0][inds_pos])
-            all_unknown_uncertainty['coarse'].append(clip_out['unct'][0][inds_neg])
+            res_coarse = get_result(clip_out, stage='coarse', target=target)
+            all_known['coarse'].append(res_coarse[inds_pos])
+            all_unknown['coarse'].append(res_coarse[inds_neg])
             # refined stage
             inds_pos = prop_conf_t.view(-1) > 0
             inds_neg = prop_conf_t.view(-1) <= 0
-            all_known_uncertainty['refined'].append(clip_out['prop_unct'][0][inds_pos])
-            all_unknown_uncertainty['refined'].append(clip_out['prop_unct'][0][inds_neg])
-    return all_known_uncertainty, all_unknown_uncertainty
+            res_refined = get_result(clip_out, stage='refined', target=target)
+            all_known['refined'].append(res_refined[inds_pos])
+            all_unknown['refined'].append(res_refined[inds_neg])
+    return all_known, all_unknown
 
 
-def plot_unct_dist(result_file, all_uncertainty, colors, labels):
+def plot_unct_dist(result_file, all_scores, colors, labels, xlabel='uncertainty'):
 
     fig = plt.figure(figsize=(5,4))  # (w, h)
     fontsize = 18
     plt.rcParams["font.family"] = "Arial"
-    plt.hist(all_uncertainty, 100, density=False, color=colors, label=labels)
+    plt.hist(all_scores, 100, density=normalize_fig, color=colors, label=labels)
     plt.legend(fontsize=fontsize-3)
-    plt.xlabel('vacuity uncertainty', fontsize=fontsize)
-    plt.ylabel('number of predictions', fontsize=fontsize)
+    plt.xlabel(xlabel, fontsize=fontsize)
+    y_labels = 'density' if normalize_fig else 'number of predictions'
+    plt.ylabel(y_labels, fontsize=fontsize)
     plt.xticks(fontsize=fontsize)
     plt.yticks(fontsize=fontsize)
-    # plt.xlim(0, 1.01)
+    if normalize_fig:
+        plt.xlim(0, 1.01)
     # plt.ylim(0, 40000)
     plt.tight_layout()
     plt.savefig(result_file)
@@ -479,14 +510,23 @@ def split_uncertainties(prediction_all, ground_truth_all, video_lst, tiou_thr=0.
     return known_uncertainty, unknown_uncertainty, background_uncertainty
 
 
-def split_uncertainties_correct(result_dict, ground_truth_all, tiou_thr=0.5):
+def split_uncertainties_correct(result_dict, ground_truth_all, tiou_thr=0.5, target='uncertainty'):
+    def get_result(pred, target=target):
+        if target == 'uncertainty' and cfg.use_edl:
+            return pred['uncertainty']
+        elif target == 'confidence':
+            return pred['score']
+        elif target == 'uncertainty_actionness' and cfg.use_edl:
+            return pred['uncertainty'] * pred['actionness']
+
     def _get_groundtruth_with_vid(ground_truth_by_vid, video_name):
         try:
             return ground_truth_by_vid.get_group(video_name).reset_index(drop=True)
         except:
             return []
+    
     ground_truth_by_vid = ground_truth_all.groupby('video-id')
-    known_uncertainty, unknown_uncertainty, background_uncertainty = [], [], []
+    known_data, unknown_data, background_data = [], [], []
     for video_name, prediction in result_dict.items():
         # get the ground truth of this video
         ground_truth = _get_groundtruth_with_vid(ground_truth_by_vid, video_name)
@@ -494,29 +534,36 @@ def split_uncertainties_correct(result_dict, ground_truth_all, tiou_thr=0.5):
             continue
         lock_gt = np.ones((len(ground_truth))) * -1
         for idx, this_pred in enumerate(prediction):
-            uncertainty = this_pred['uncertainty']
+            res = get_result(this_pred, target=target)
             tiou_arr = segment_iou(np.array(this_pred['segment']),
                                    ground_truth[['t-start', 't-end']].values)
             tiou_sorted_idx = tiou_arr.argsort()[::-1]  # tIoU in a decreasing order
             for jdx in tiou_sorted_idx:
                 if tiou_arr[jdx] < tiou_thr:  # background segment
-                    background_uncertainty.append(uncertainty)
+                    background_data.append(res)
                     break
                 if lock_gt[jdx] >= 0:
                     continue  # this gt was matched before, continue to select the second largest tIoU match
                 label_gt = int(ground_truth.loc[jdx]['label'])
                 if label_gt == 0: # unknown foreground
-                    unknown_uncertainty.append(uncertainty)
+                    unknown_data.append(res)
                 else:  # known foreground
-                    known_uncertainty.append(uncertainty)
+                    known_data.append(res)
                 lock_gt[jdx] = idx
                 break
-    return known_uncertainty, unknown_uncertainty, background_uncertainty
+    return known_data, unknown_data, background_data
 
 
 if __name__ == '__main__':
 
     cfg = get_basic_config(config)
+    normalize_fig = True
+    target = cfg.scoring  # 'confidence', 'uncertainty', 'uncertainty_actionness'
+
+    # draw distributions before post-processing
+    out_folder = 'dist_norm' if normalize_fig else 'dist'
+    fig_dir = os.path.join(cfg.output_path, out_folder, target)
+    os.makedirs(fig_dir, exist_ok=True)
     
     output_file = os.path.join(cfg.output_path, 'raw_outputs.npz')
     if not os.path.exists(output_file):
@@ -532,51 +579,48 @@ if __name__ == '__main__':
     # annos_train = get_all_annos(subset='train', clip_length=cfg.clip_length, stride=cfg.stride)
     annos_known_test = get_all_annos(subset='test', clip_length=cfg.clip_length, stride=cfg.stride)
 
-    all_known_uncertainty, all_unknown_uncertainty = split_uncertainties_stages(output_test, annos_known_test)
+    all_known, all_unknown = split_results_by_stages(output_test, annos_known_test, target=target)
 
-    # draw distributions before post-processing
-    fig_dir = os.path.join(cfg.output_path, 'dist')
-    os.makedirs(fig_dir, exist_ok=True)
-    # draw ood uncertainty distribution in coarse stage
-    ind_uncertainty = np.concatenate(all_known_uncertainty['coarse'])
-    ood_uncertainty = np.concatenate(all_unknown_uncertainty['coarse'])
-    plot_unct_dist(os.path.join(fig_dir, 'unct_dist_coarse.png'), [ind_uncertainty, ood_uncertainty],
-        colors=['green', 'red'], labels=['Known', 'Unknown'])
+    # draw ood distribution in coarse stage
+    ind_data = np.concatenate(all_known['coarse'])
+    ood_data = np.concatenate(all_unknown['coarse'])
+    plot_unct_dist(os.path.join(fig_dir, 'dist_coarse.png'), [ind_data, ood_data],
+        colors=['green', 'red'], labels=['Known', 'Unknown & Bg'], xlabel=target)
 
-    # draw ood uncertainty distribution in refined stage
-    ind_uncertainty = np.concatenate(all_known_uncertainty['refined'])
-    ood_uncertainty = np.concatenate(all_unknown_uncertainty['refined'])
-    plot_unct_dist(os.path.join(fig_dir, 'unct_dist_refined.png'), [ind_uncertainty, ood_uncertainty],
-        colors=['green', 'red'], labels=['Known', 'Unknown'])
+    # draw ood distribution in refined stage
+    ind_data = np.concatenate(all_known['refined'])
+    ood_data = np.concatenate(all_unknown['refined'])
+    plot_unct_dist(os.path.join(fig_dir, 'dist_refined.png'), [ind_data, ood_data],
+        colors=['green', 'red'], labels=['Known', 'Unknown & Bg'], xlabel=target)
     
     # get the threshold from trainset inference results
     ood_thresh = post_process(output_train, phase='train')
     # get the post process results for evaluation
     result_dict, pred_file = post_process(output_test, phase='test')
 
-    # plot all results after post-processing
-    all_uncertainty = []
-    for video_name, proposal_list in result_dict.items():
-        for prop in proposal_list:
-            if cfg.use_edl:
-                uncertainty = prop['uncertainty']
-                all_uncertainty.append(uncertainty)
-    all_uncertainty = np.array(all_uncertainty)
-    plot_unct_dist(os.path.join(fig_dir, 'unct_dist_postprocessing_all.png'), [all_uncertainty], colors=['red'], labels=['All'])
+    # # plot all results after post-processing
+    # all_uncertainty = []
+    # for video_name, proposal_list in result_dict.items():
+    #     for prop in proposal_list:
+    #         if cfg.use_edl:
+    #             uncertainty = prop['uncertainty']
+    #             all_uncertainty.append(uncertainty)
+    # all_uncertainty = np.array(all_uncertainty)
+    # plot_unct_dist(os.path.join(fig_dir, 'unct_dist_postprocessing_all.png'), [all_uncertainty], colors=['red'], labels=['All'])
 
     activity_index = get_activity_index(cfg.cls_idx_known)
     gt_file = cfg.gt_all_json if cfg.open_set else cfg.gt_known_json.format(id=cfg.split)
     ground_truth_all, video_lst = load_gt_data(gt_file, activity_index)
     
     # Method 1: Use naive python dictionary and list
-    known_uncertainty, unknown_uncertainty, background_uncertainty = split_uncertainties_correct(result_dict, ground_truth_all, tiou_thr=0.5)
+    known_data, unknown_data, background_data = split_uncertainties_correct(result_dict, ground_truth_all, tiou_thr=0.5, target=target)
 
     # Method 2: From Official Evaluation Code (GT matching based on pd.DataFrame format of prediction)
     # prediction_all = gather_valid_preds(result_dict, video_lst, activity_index)
     # known_uncertainty, unknown_uncertainty, background_uncertainty = split_uncertainties(prediction_all, ground_truth_all, video_lst, tiou_thr=0.5)
 
     # plot 
-    plot_unct_dist(os.path.join(fig_dir, 'unct_dist_final.png'), [known_uncertainty, unknown_uncertainty, background_uncertainty],
-        colors=['green', 'red', 'blue'], labels=['Known', 'Unknown', 'Background'])
-    plot_unct_dist(os.path.join(fig_dir, 'unct_dist_final_nobg.png'), [known_uncertainty, unknown_uncertainty],
-        colors=['green', 'red'], labels=['Known', 'Unknown'])
+    plot_unct_dist(os.path.join(fig_dir, 'dist_final.png'), [known_data, unknown_data, background_data],
+        colors=['green', 'red', 'blue'], labels=['Known', 'Unknown', 'Background'], xlabel=target)
+    plot_unct_dist(os.path.join(fig_dir, 'dist_final_nobg.png'), [known_data, unknown_data],
+        colors=['green', 'red'], labels=['Known', 'Unknown'], xlabel=target)

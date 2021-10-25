@@ -7,7 +7,7 @@ source activate afsd
 
 GPU_ID=$1
 ALL_SPLITS="0"
-OOD_SCORING="uncertainty"
+OOD_SCORING="uncertainty_actionness"
 
 for SPLIT in ${ALL_SPLITS}
 do
