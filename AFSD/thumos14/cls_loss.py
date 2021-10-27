@@ -97,10 +97,12 @@ class EvidenceLoss(nn.Module):
         if self.with_ghm:
             self.num_bins = cfg['num_bins']
             self.momentum = cfg['momentum']
+            self.ghm_start = cfg['ghm_start'] if 'ghm_start' in cfg else 0
             self.edges = [float(x) / self.num_bins for x in range(self.num_bins+1)]
             self.edges[-1] += 1e-6
             if self.momentum > 0:
                 self.acc_sum = [0.0 for _ in range(self.num_bins)]
+            self.epoch, self.total_epoch = 0, 25
         self.size_average = size_average
 
 
@@ -209,7 +211,7 @@ class EvidenceLoss(nn.Module):
             alpha_class = self.alpha.gather(0, target.view(-1))  # (N,)
             weight = alpha_class * torch.pow(torch.sub(1.0, pred_scores), self.gamma)  # (N,)
             cls_loss = torch.sum(y * weight.unsqueeze(-1) * (func(S) - func(alpha)), dim=1)
-        elif self.with_ghm:
+        elif self.with_ghm and self.epoch >= self.ghm_start:
             alpha_pred = alpha.detach().clone()  # (N, K)
             uncertainty = self.num_cls / alpha_pred.sum(dim=-1, keepdim=True)  # (N, 1)
             # weights = torch.pow(1 / alpha_pred - uncertainty, 2)
