@@ -170,7 +170,7 @@ def evidence_func(logit, evidence='exp'):
         return F.softplus(logit)
 
 
-def grad_norm_edl(logit, target, num_cls=15, evidence='exp'):
+def grad_edl(logit, target, num_cls=15, evidence='exp'):
     if logit.dim() > 2:
         # N,C,d1,d2 -> N,C,m (m=d1*d2*...)
         logit = logit.view(logit.size(0), logit.size(1), -1)
@@ -184,11 +184,12 @@ def grad_norm_edl(logit, target, num_cls=15, evidence='exp'):
     pred_alpha = evidence_func(logit, evidence=evidence) + 1  # (alpha = e + 1)
     uncertainty = num_cls / pred_alpha.sum(dim=-1, keepdim=True)  # (N, 1)
     # gradient length
-    grad_norm = torch.abs(1 / pred_alpha - uncertainty) * y  # y_ij * (1/alpha_ij - u_i)
-    return grad_norm
+    grad = (1 / pred_alpha - uncertainty) * y  # y_ij * (1/alpha_ij - u_i)
+    grad_norm = torch.abs(grad)
+    return grad, grad_norm
 
 
-def get_grad_norms(cfg):
+def get_grad_info(cfg):
     set_seed(cfg.random_seed)
     # Setup model
     net = setup_model(cfg)
@@ -198,6 +199,7 @@ def get_grad_norms(cfg):
     
     # start loop
     all_grad_norms, all_grad_norms_prop = [], []
+    all_grads, all_grads_prop = [], []
     with tqdm.tqdm(train_data_loader, total=epoch_step_num, ncols=0) as pbar:
         for n_iter, (clips, targets, scores, ssl_clips, ssl_targets, flags) in enumerate(pbar):
             clips = clips.cuda()
@@ -219,7 +221,7 @@ def get_grad_norms(cfg):
                 conf_p = conf_p[inds_keep.squeeze()]  # (M,15)
             if targets_conf.numel() > 0 and cfg.cls_loss_type == 'edl':
                 # compute gradient norm (one-hot)
-                grad_norms = grad_norm_edl(conf_p, targets_conf, num_cls=cfg.num_classes, evidence=cfg.edl_config['evidence'])
+                grads, grad_norms = grad_edl(conf_p, targets_conf, num_cls=cfg.num_classes, evidence=cfg.edl_config['evidence'])
 
             # refined stage
             prop_conf_p = output_dict['prop_conf'].view(-1, cfg.num_classes)
@@ -232,16 +234,18 @@ def get_grad_norms(cfg):
                 prop_conf_p = prop_conf_p[inds_keep.squeeze()]  # (M,15)
             if prop_conf_t.numel() > 0 and cfg.cls_loss_type == 'edl':
                 # compute gradient norm
-                grad_norms_prop = grad_norm_edl(prop_conf_p, prop_conf_t, num_cls=cfg.num_classes, evidence=cfg.edl_config['evidence'])
+                grads_prop, grad_norms_prop = grad_edl(prop_conf_p, prop_conf_t, num_cls=cfg.num_classes, evidence=cfg.edl_config['evidence'])
 
             if grad_norms is not None:
                 all_grad_norms.append(grad_norms.cpu().numpy())
+                all_grads.append(grads.cpu().numpy())
             if grad_norms_prop is not None:
                 all_grad_norms_prop.append(grad_norms_prop.cpu().numpy())
-    return all_grad_norms, all_grad_norms_prop
+                all_grads_prop.append(grads_prop.cpu().numpy())
+    return all_grad_norms, all_grad_norms_prop, all_grads, all_grads_prop
 
             
-def plot_gradnorm_fig(all_grad_norms, num_bins=30, momentum=0.75, fontsize=18):
+def plot_grad_density(save_file, all_grad_norms, num_bins=30, momentum=0.75, fontsize=18):
     
     edges = [float(x) / num_bins for x in range(num_bins+1)]
     edges[-1] += 1e-6
@@ -282,8 +286,19 @@ def plot_gradnorm_fig(all_grad_norms, num_bins=30, momentum=0.75, fontsize=18):
     plt.xlabel('gradient norm', fontsize=fontsize)
     plt.xlim(0, grad_norm.max() - 1.0/num_bins)
     plt.tight_layout()
-    plt.savefig(os.path.join(cfg.output_path, 'grad_norms.png'))
+    plt.savefig(save_file)
     
+
+def plot_grad_hist(save_file, all_grads, xlim=(-0.1, 0.1), ylim=(0, 100), fontsize=18):
+    grads = np.concatenate(all_grads, axis=0).sum(axis=-1)
+    fig, ax1 = plt.subplots(1,1, figsize=(8,5))
+    plt.hist(grads, 200, density=True, alpha=0.8)
+    plt.xlabel("gradient", fontsize=fontsize)
+    plt.ylabel("probability density", fontsize=fontsize)
+    plt.xlim(xlim) if xlim is not None else [min(grads), max(grads)]
+    plt.ylim(ylim) if xlim is not None else None
+    plt.tight_layout()
+    plt.savefig(save_file)
 
 
 if __name__ == '__main__':
@@ -292,11 +307,20 @@ if __name__ == '__main__':
 
     output_file = os.path.join(cfg.output_path, 'grad_norms.npz')
     if not os.path.exists(output_file):
-        all_grad_norms, all_grad_norms_prop = get_grad_norms(cfg)
-        np.savez(output_file[:-4], grad_norms=all_grad_norms, grad_norm_prop=all_grad_norms_prop)
+        all_grad_norms, all_grad_norms_prop, all_grads, all_grads_prop = get_grad_info(cfg)
+        np.savez(output_file[:-4], grad_norms=all_grad_norms, 
+                                   grad_norm_prop=all_grad_norms_prop,
+                                   grads=all_grads,
+                                   grad_prop=all_grads_prop)
     else:
         results = np.load(output_file, allow_pickle=True)
         all_grad_norms, all_grad_norms_prop = results['grad_norms'], results['grad_norm_prop']
+        all_grads, all_grads_prop = results['grads'], results['grad_prop']
         print(f'Grad norm result file already exist at {output_file}!')
     
-    plot_gradnorm_fig(all_grad_norms, num_bins=30, momentum=0.75)
+    plot_grad_density(os.path.join(cfg.output_path, 'grad_density.png'), all_grad_norms, num_bins=100, momentum=0.75)
+    plot_grad_density(os.path.join(cfg.output_path, 'grad_prop_density.png'), all_grad_norms_prop, num_bins=100, momentum=0.75)
+
+    plot_grad_hist(os.path.join(cfg.output_path, 'grad_hist.png'), all_grads, xlim=(-0.1,0.1), ylim=(0,100))
+    plot_grad_hist(os.path.join(cfg.output_path, 'grad_prop_hist.png'), all_grads_prop, xlim=None, ylim=None)
+    
