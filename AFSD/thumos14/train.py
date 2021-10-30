@@ -243,7 +243,8 @@ def run_one_epoch(epoch, net, optimizer, data_loader, epoch_step_num, training=T
                 optimizer.zero_grad()
                 cost.backward()
                 grad_norm = get_grad_norm(net)
-                tb_writer.add_scalars(f'stats/grad_norm', {'grad_norm': grad_norm.mean().item()}, cur_iter)
+                if config['testing']['split'] == 0:
+                    tb_writer.add_scalars(f'stats/grad_norm', {'grad_norm': grad_norm.mean().item()}, cur_iter)
                 # nn.utils.clip_grad_norm_(get_trainable_params(net), 20)
                 optimizer.step()
 

@@ -1,0 +1,43 @@
+dataset:
+  num_classes: 151
+  class_info_path: datasets/activitynet/annotations_open/split_{id:d}/action_known.txt
+  training:
+    video_mp4_path: datasets/activitynet/train_val_npy_112
+    video_info_path: datasets/activitynet/annotations_open/split_{id:d}/video_info_trainval_openset.json
+    video_anno_path: None
+    video_data_path: None
+    clip_length: 768
+    clip_stride: 768
+    crop_size: 96
+  testing:
+    video_mp4_path: datasets/activitynet/train_val_npy_112
+    video_info_path: datasets/activitynet/annotations_open/split_{id:d}/video_info_trainval_openset.json
+    video_anno_path: None
+    video_data_path: None
+    crop_size: 96
+    clip_length: 768
+    clip_stride: 768
+
+model:
+  in_channels: 3
+  freeze_bn: true
+  freeze_bn_affine: true
+  backbone_model: models/i3d_models/rgb_imagenet.pt
+
+training:
+  batch_size: 1
+  learning_rate: 1e-4
+  weight_decay: 1e-4
+  max_epoch: 16
+  focal_loss: true
+  checkpoint_path: models/anet/edl_oshead_iou/split_{id:d}/
+  random_seed: 2020
+
+testing:
+  conf_thresh: 0.01
+  top_k: 5000
+  nms_thresh: 0.5
+  nms_sigma: 0.85
+  checkpoint_path: models/anet/edl_oshead_iou/split_{id:d}/checkpoint-latest.ckpt
+  output_path: output/edl_oshead_iou/split_{id:d}
+  output_json: detection_results.json
