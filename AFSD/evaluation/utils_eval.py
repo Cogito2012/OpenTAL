@@ -3,7 +3,8 @@
 
 import json
 import urllib.request
-
+import os, pickle
+import matplotlib.pyplot as plt
 import numpy as np
 
 API = 'http://ec2-52-11-11-89.us-west-2.compute.amazonaws.com/challenge17/api.py'
@@ -80,3 +81,40 @@ def wrapper_segment_iou(target_segments, candidate_segments):
         tiou[:, i] = segment_iou(target_segments[i, :], candidate_segments)
 
     return tiou
+
+
+def save_curve_data(roc_data, pr_data, save_path, vis=False, fontsize=18):
+    os.makedirs(save_path, exist_ok=True)
+    # save roc data
+    with open(os.path.join(save_path, 'roc_data.pkl'), 'wb') as f:
+        pickle.dump(roc_data, f, pickle.HIGHEST_PROTOCOL)
+    # save pr data
+    with open(os.path.join(save_path, 'pr_data.pkl'), 'wb') as f:
+        pickle.dump(pr_data, f, pickle.HIGHEST_PROTOCOL)
+    # draw curves
+    if vis:
+        line_styles = ['r-', 'c-', 'g-', 'b-', 'k']
+        # plot roc curve
+        plt.figure(figsize=(8, 5))
+        for tidx, (fpr, tpr, auc, tiou) in enumerate(zip(roc_data['fpr'], roc_data['tpr'], roc_data['auc'], roc_data['tiou'])):
+            plt.plot(fpr, tpr, line_styles[tidx], label=f'tIoU={tiou}, auc={auc*100:.2f}%')
+        plt.xlabel('False Positive Rate', fontsize=fontsize)
+        plt.ylabel('True Positive Rate', fontsize=fontsize)
+        plt.xticks(fontsize=fontsize)
+        plt.yticks(fontsize=fontsize)
+        plt.legend(fontsize=fontsize)
+        plt.tight_layout()
+        plt.savefig(os.path.join(save_path, 'AUC_ROC.png'))
+        plt.close()
+        # plot pr curve
+        plt.figure(figsize=(8, 5))
+        for tidx, (precision, recall, auc, tiou) in enumerate(zip(pr_data['precision'], pr_data['recall'], pr_data['auc'], pr_data['tiou'])):
+            plt.plot(recall, precision, line_styles[tidx], label=f'tIoU={tiou}, auc={auc*100:.2f}%')
+        plt.xlabel('Recall', fontsize=fontsize)
+        plt.ylabel('Precision', fontsize=fontsize)
+        plt.xticks(fontsize=fontsize)
+        plt.yticks(fontsize=fontsize)
+        plt.legend(fontsize=fontsize)
+        plt.tight_layout()
+        plt.savefig(os.path.join(save_path, 'AUC_PR.png'))
+        plt.close()

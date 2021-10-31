@@ -6,7 +6,7 @@ cd ../../
 source activate afsd
 
 GPU_ID=$1
-ALL_SPLITS="0 1 2 4"
+ALL_SPLITS="0 1 2"
 
 for SPLIT in ${ALL_SPLITS}
 do

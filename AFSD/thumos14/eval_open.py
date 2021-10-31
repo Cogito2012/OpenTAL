@@ -12,6 +12,7 @@ parser.add_argument('gt_json', type=str, default='datasets/thumos14/annotations/
 parser.add_argument('--cls_idx_known', type=str)
 parser.add_argument('--all_splits', nargs='+', type=int)
 parser.add_argument('--open_set', action='store_true')
+parser.add_argument('--draw_auc', action='store_true')
 parser.add_argument('--ood_scoring', type=str, default='confidence', choices=['uncertainty', 'confidence', 'uncertainty_actionness'])
 parser.add_argument('--trainset_result', type=str)
 args = parser.parse_args()
@@ -38,6 +39,8 @@ for split in args.all_splits:
     cls_idx_known = args.cls_idx_known.format(id=split)
     # read threshold value
     threshold = read_threshold(args.trainset_result.format(id=split)) if args.open_set else 0
+    auc_data_path = os.path.join(os.path.join(os.path.dirname(pred_file), 'auc_data'))
+    os.makedirs(auc_data_path, exist_ok=True)
     # instantiate evaluator
     anet_detection = ANETdetection(
         ground_truth_filename=gt_file,
@@ -48,6 +51,8 @@ for split in args.all_splits:
         ood_threshold=threshold,
         ood_scoring=args.ood_scoring,
         tiou_thresholds=tious,
+        draw_auc=args.draw_auc,
+        curve_data_path=auc_data_path,
         verbose=False)
     print_str = f'Running the evaluation on split {split}'
     if args.open_set:
@@ -87,7 +92,8 @@ for split in args.all_splits:
 
 def get_mean_std(data, axis=0):
     mean = np.array(data).mean(axis=axis)
-    std = np.array(data).std(axis=axis)
+    # see the Confidence Intervals: http://www.stat.yale.edu/Courses/1997-98/101/confint.htm
+    std = np.array(data).std(axis=axis) / np.sqrt(len(data)) * 1.96
     return mean, std
 
 # print the averaged results

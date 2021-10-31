@@ -13,7 +13,8 @@ from tqdm import tqdm
 from .utils_eval import get_blocked_videos
 from .utils_eval import interpolated_prec_rec
 from .utils_eval import segment_iou
-from sklearn.metrics import average_precision_score, roc_auc_score
+from .utils_eval import save_curve_data
+from sklearn.metrics import average_precision_score, roc_auc_score, roc_curve, precision_recall_curve
 
 import warnings
 warnings.filterwarnings("ignore", message="numpy.dtype size changed")
@@ -34,6 +35,8 @@ class ANETdetection(object):
                  ood_scoring='confidence',
                  subset='validation', 
                  openset=False,
+                 draw_auc=False,
+                 curve_data_path=None,
                  verbose=False, 
                  check_status=False):
         if not ground_truth_filename:
@@ -45,6 +48,8 @@ class ANETdetection(object):
         self.ood_threshold = ood_threshold
         self.ood_scoring = ood_scoring
         self.openset = openset
+        self.draw_auc = draw_auc
+        self.curve_data_path = curve_data_path
         self.verbose = verbose
         self.gt_fields = ground_truth_fields
         self.pred_fields = prediction_fields
@@ -236,7 +241,10 @@ class ANETdetection(object):
 
     def wrapper_compute_auc_scores(self):
         unique_videos = list(set(self.video_lst))
-        au_roc, au_pr = compute_auc_scores(self.ground_truth, self.prediction, unique_videos, tiou_thresholds=self.tiou_thresholds)
+        au_roc, au_pr, _, _ = compute_auc_scores(self.ground_truth, self.prediction, unique_videos, tiou_thresholds=self.tiou_thresholds)
+        if self.draw_auc:
+            _, _, roc_data, pr_data = compute_auc_scores(self.ground_truth, self.prediction, unique_videos, tiou_thresholds=[0.3, 0.4, 0.5], vis=True)
+            save_curve_data(roc_data, pr_data, self.curve_data_path, vis=True)
         return au_roc, au_pr
 
 
@@ -359,7 +367,7 @@ def compute_average_precision_detection(ground_truth, prediction, tiou_threshold
     return ap
 
 
-def compute_auc_scores(ground_truth_all, prediction_all, video_list, tiou_thresholds=np.linspace(0.5, 0.95, 10)):
+def compute_auc_scores(ground_truth_all, prediction_all, video_list, tiou_thresholds=np.linspace(0.5, 0.95, 10), vis=False):
     """ Compute the Area Under the Curves (ROC and PR)
     """
     ground_truth_by_vid = ground_truth_all.groupby('video-id')
@@ -408,13 +416,28 @@ def compute_auc_scores(ground_truth_all, prediction_all, video_list, tiou_thresh
     # compute the AUC of PR and ROC curves between known and unknown
     auc_pr = np.zeros((len(tiou_thresholds),), dtype=np.float32)
     auc_roc = np.zeros((len(tiou_thresholds),), dtype=np.float32)
-    for tidx, _ in enumerate(tiou_thresholds):
+    roc_data = {'fpr': [], 'tpr': [], 'auc': [], 'tiou': []} if vis else None
+    pr_data = {'recall': [], 'precision': [], 'auc': [], 'tiou': []} if vis else None
+    for tidx, tiou in enumerate(tiou_thresholds):
         preds = pred_scores[tidx]['known'] + pred_scores[tidx]['unknown']
         labels = gt_scores[tidx]['known'] + gt_scores[tidx]['unknown']
         if len(preds) > 0 and len(labels) > 0:
             auc_pr[tidx] = average_precision_score(labels, preds)  # note that this is interpolated approximation of precision_recall_curve() + auc()
             auc_roc[tidx] = roc_auc_score(labels, preds) if len(list(set(labels))) > 1 else 0  # at least there should be two classes
-    return auc_roc, auc_pr
+            if vis:
+                # draw AUC_ROC curves
+                fpr, tpr, _ = roc_curve(labels, preds, pos_label=1)
+                roc_data['fpr'].append(fpr)
+                roc_data['tpr'].append(tpr)
+                roc_data['auc'].append(auc_roc[tidx])
+                roc_data['tiou'].append(tiou)
+                # draw AUC_PR curves
+                precision, recall, _ = precision_recall_curve(labels, preds, pos_label=1)
+                pr_data['precision'].append(precision)
+                pr_data['recall'].append(recall)
+                pr_data['auc'].append(auc_pr[tidx])
+                pr_data['tiou'].append(tiou)
+    return auc_roc, auc_pr, roc_data, pr_data
 
 
 def compute_wilderness_impact1(ground_truth_all, prediction_all, video_list, known_classes, tiou_thresholds=np.linspace(0.5, 0.95, 10)):
