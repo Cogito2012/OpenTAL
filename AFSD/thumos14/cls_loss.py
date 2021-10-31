@@ -88,6 +88,7 @@ class EvidenceLoss(nn.Module):
         self.soft_label = cfg['soft_label'] if 'soft_label' in cfg else 0.0
         self.iou_aware = cfg['iou_aware'] if 'iou_aware' in cfg else False
         self.with_ghm = cfg['with_ghm'] if 'with_ghm' in cfg else False
+        self.with_ibm = cfg['with_ibm'] if 'ibm' in cfg else False
         self.eps = 1e-10
         if self.with_focal:
             alpha = torch.ones((self.num_cls)) * (1 - cfg['alpha'])  # foreground class
@@ -103,6 +104,8 @@ class EvidenceLoss(nn.Module):
             if self.momentum > 0:
                 self.acc_sum = [0.0 for _ in range(self.num_bins)]
             self.epoch, self.total_epoch = 0, 25
+        if self.with_ibm:
+            self.ibm_start = cfg['ibm_start'] if 'ibm_start' in cfg else 0
         self.size_average = size_average
 
 
@@ -139,10 +142,13 @@ class EvidenceLoss(nn.Module):
         
         # get loss func
         loss, func = self.get_loss_func()
-
+        
+         # L_1 norm of feature
+        feat_norm = torch.sum(torch.abs(logit.detech()), 1).reshape(-1, 1) if self.with_ibm else None
+        
         # compute losses
         pred_alpha = self.evidence_func(logit) + 1  # (alpha = e + 1)
-        loss_out = loss(y, pred_alpha, func=func, target=target)
+        loss_out = loss(y, pred_alpha, func=func, target=target, feat_norm=feat_norm)
         out_dict.update(loss_out)
 
         # accumulate total loss
@@ -176,7 +182,7 @@ class EvidenceLoss(nn.Module):
             return F.softplus(logit)
         
 
-    def mse_loss(self, y, alpha, func=None, target=None):
+    def mse_loss(self, y, alpha, func=None, target=None, feat_norm=None):
         """Used only for loss_type == 'mse'
         y: the one-hot labels (batchsize, num_classes)
         alpha: the predictions (batchsize, num_classes)
@@ -195,7 +201,7 @@ class EvidenceLoss(nn.Module):
         return losses
 
 
-    def edl_loss(self, y, alpha, func=torch.log, target=None):
+    def edl_loss(self, y, alpha, func=torch.log, target=None, feat_norm=None):
         """Used for both loss_type == 'log' and loss_type == 'digamma'
         y: the one-hot labels (batchsize, num_classes)
         alpha: the predictions (batchsize, num_classes)
@@ -232,6 +238,13 @@ class EvidenceLoss(nn.Module):
                     n += 1
             if n > 0:
                 weights = weights / n
+            # compute the weighted EDL loss
+            cls_loss = torch.sum(y * weights * (func(S) - func(alpha)), dim=1)
+        elif self.with_ibm and self.epoch >= self.ibm_start:
+            alpha_pred = alpha.detach().clone()  # (N, K)
+            uncertainty = self.num_cls / alpha_pred.sum(dim=-1, keepdim=True)  # (N, 1)
+            grad_norm = torch.abs(1 / alpha_pred - uncertainty) * y  # y_ij * (1/alpha_ij - u_i)
+            weights = 1.0 / (grad_norm * feat_norm + self.eps)  # influence-balanced weight
             # compute the weighted EDL loss
             cls_loss = torch.sum(y * weights * (func(S) - func(alpha)), dim=1)
         else:
