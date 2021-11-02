@@ -22,6 +22,7 @@ if not os.path.exists(output_dir):
 files = sorted(os.listdir(video_dir))
 
 def sub_processor(pid, files):
+    fid = open(os.path.join(os.path.dirname(video_dir), 'problematic_videos.txt'), 'w')
     for file in files[:]:
         file_name = os.path.splitext(file)[0]
         target_file = os.path.join(output_dir, file_name + '.npy')
@@ -35,11 +36,14 @@ def sub_processor(pid, files):
             imgs.append(frame[:, :, ::-1])
         if count != len(imgs):
             print('{} frame num is less'.format(file_name))
+            fid.writelines(file + '\n')
+            continue
         imgs = np.stack(imgs)
         print(imgs.shape)
         if max_frame_num is not None:
             imgs = imgs[:max_frame_num]
         np.save(target_file, imgs)
+    fid.close()
 
 processes = []
 video_num = len(files)

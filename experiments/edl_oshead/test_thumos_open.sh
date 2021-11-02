@@ -8,7 +8,7 @@ python setup.py develop
 
 GPU_ID=$1
 ALL_SPLITS="0 1 2"
-EXP_TAG="edl_oshead_iou"
+EXP_TAG="edl_oshead_iou_ibm"
 OOD_SCORING="uncertainty_actionness"
 
 for SPLIT in ${ALL_SPLITS}
@@ -18,7 +18,7 @@ do
         # run RGB model
         echo "Test the RGB model on Thumos14 Open Set (Split=${SPLIT}):"
         CUDA_VISIBLE_DEVICES=${GPU_ID} python AFSD/thumos14/test.py \
-            configs/thumos14_open_iou_edl_oshead_15kc.yaml \
+            configs/thumos14_open_iou_edl_oshead_ibm.yaml \
             --open_set \
             --split=${SPLIT} \
             --output_json=thumos14_open_rgb.json 
@@ -45,6 +45,7 @@ python AFSD/thumos14/eval_open.py \
     datasets/thumos14/annotations/thumos_gt.json \
     --cls_idx_known ${CLS_IDX_KNOWN} \
     --open_set \
+    --draw_auc \
     --trainset_result ${TRAINSET_RESULT} \
     --all_splits ${ALL_SPLITS} \
     --ood_scoring ${OOD_SCORING}

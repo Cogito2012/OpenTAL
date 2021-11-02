@@ -7,10 +7,11 @@ source activate afsd
 
 GPU_ID=$1
 ALL_SPLITS="0 1 2"
+EXP_TAG='default'
 
 for SPLIT in ${ALL_SPLITS}
 do
-    PRED_FILE=output/default/split_${SPLIT}/thumos14_open_rgb.json
+    PRED_FILE=output/${EXP_TAG}/split_${SPLIT}/thumos14_open_rgb.json
     if [ ! -f $PRED_FILE ]; then
         # run RGB model
         echo "Test the RGB model on Thumos14 Open Set (Split=${SPLIT}):"
@@ -24,9 +25,9 @@ do
     fi
 done
 
-MODEL_OUTPUT=output/default/${EXP_TAG}/split_{id:d}/thumos14_open_rgb.json
+MODEL_OUTPUT=output/${EXP_TAG}/split_{id:d}/thumos14_open_rgb.json
 CLS_IDX_KNOWN=datasets/thumos14/annotations_open/split_{id:d}/Class_Index_Known.txt
-TRAINSET_RESULT=output/default/${EXP_TAG}/split_{id:d}/thumos14_open_trainset.json
+TRAINSET_RESULT=output/${EXP_TAG}/split_{id:d}/thumos14_open_trainset.json
 
 echo -e "\nClosed Set Evaluation (15 Classes)"
 python AFSD/thumos14/eval_open.py \
@@ -41,6 +42,7 @@ python AFSD/thumos14/eval_open.py \
     datasets/thumos14/annotations/thumos_gt.json \
     --cls_idx_known ${CLS_IDX_KNOWN} \
     --open_set \
+    --draw_auc \
     --trainset_result ${TRAINSET_RESULT} \
     --all_splits ${ALL_SPLITS}
 

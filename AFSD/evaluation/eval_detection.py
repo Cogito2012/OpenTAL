@@ -559,7 +559,7 @@ def compute_wilderness_impact(ground_truth_all, prediction_all, video_list, know
 
     # compute the TP, FPo and FPc for each predicted segment.
     vidx_offset = 0
-    all_scores, all_max_tious = [], []
+    all_ood_scores, all_scores, all_max_tious = [], [], []
     num_gt = np.zeros((len(known_classes) + 1,), dtype=np.float32)
     for video_name in tqdm(video_list, total=len(video_list), desc='Compute WI'):
         ground_truth = ground_truth_by_vid.get_group(video_name).reset_index()
@@ -570,11 +570,13 @@ def compute_wilderness_impact(ground_truth_all, prediction_all, video_list, know
 
         if prediction.empty:
             vidx_offset += len(prediction)
+            all_ood_scores.extend([0] * len(prediction)) 
             all_scores.extend([0] * len(prediction))  # only for confidence score
             all_max_tious.extend([0] * len(prediction))
             continue  # no predictions for this video
 
         all_scores.extend(prediction['score'].values.tolist())
+        all_ood_scores.extend(prediction['ood_score'].values.tolist())
         lock_gt = np.ones((len(tiou_thresholds),len(ground_truth))) * -1
         
         for idx, this_pred in prediction.iterrows():
@@ -620,7 +622,7 @@ def compute_wilderness_impact(ground_truth_all, prediction_all, video_list, know
         vidx_offset += len(prediction)
 
     stats = {'tp_k2k': tp_k2k, 'tp_u2u': tp_u2u, 'fp_k2k': fp_k2k, 'fp_k2u': fp_k2u, 'fp_u2k': fp_u2k, 'fp_bg2k': fp_bg2k, 'fp_bg2u': fp_bg2u,
-             'scores': all_scores, 'max_tious': all_max_tious, 'num_gt': num_gt}
+             'ood_scores': all_ood_scores, 'scores': all_scores, 'max_tious': all_max_tious, 'num_gt': num_gt}
     
     # # report the AP for known classes
     # ap = np.zeros((len(known_classes), len(tiou_thresholds)), dtype=np.float32)  # K classes

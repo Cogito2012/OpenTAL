@@ -60,10 +60,43 @@ def get_mean_stds(data):
     return np.mean(data), np.std(data) / np.sqrt(len(data)) * 1.96
 
 
+def plot_ood_scores(width=0.25, fontsize=18):
+    xrng = np.arange(len(items)) 
+    tious_used = [0.3, 0.5, 0.7]
+    # score distribution
+    fig, ax = plt.subplots(1,1, figsize=(8,5))
+    plt.rcParams["font.family"] = "Arial"
+    all_scores = np.array(stats['ood_scores']) if exp_tag == 'default' else 1 - np.array(stats['ood_scores'])
+    mean_scores = np.zeros((len(tious_used), 7))
+    std_scores = np.zeros((len(tious_used), 7))
+    for i, (iou, c) in enumerate(zip(tious_used, colors)):
+        mean_scores[i, 0], std_scores[i, 0] = get_mean_stds(all_scores[stats['tp_u2u'][i] > 0])
+        mean_scores[i, 1], std_scores[i, 1] = get_mean_stds(all_scores[stats['tp_k2k'][i].sum(axis=0) > 0])
+        mean_scores[i, 2], std_scores[i, 2] = get_mean_stds(all_scores[stats['fp_u2k'][i].sum(axis=0) > 0])
+        mean_scores[i, 3], std_scores[i, 3] = get_mean_stds(all_scores[stats['fp_k2k'][i].sum(axis=0) > 0])
+        mean_scores[i, 4], std_scores[i, 4] = get_mean_stds(all_scores[stats['fp_k2u'][i] > 0])
+        mean_scores[i, 5], std_scores[i, 5] = get_mean_stds(all_scores[stats['fp_bg2u'][i] > 0])
+        mean_scores[i, 6], std_scores[i, 6] = get_mean_stds(all_scores[stats['fp_bg2k'][i].sum(axis=0) > 0])
+
+        h = ax.bar(xrng + (i-1) * width, mean_scores[i], yerr=std_scores[i], width=width, label=f'tIoU={iou}', align='center', alpha=0.5, ecolor='black', color=c)
+    
+    ax.set_ylim(0, 1)
+    ax.set_ylabel('OOD Scores', fontsize=fontsize)
+    ax.set_xticks(xrng)
+    ax.set_xticklabels(items, fontsize=fontsize-3)
+    # loc = 'lower center' if exp_tag == 'default' else 'upper center'
+    ax.legend(fontsize=fontsize, loc='upper center', ncol=3)
+    plt.yticks(fontsize=fontsize)
+    plt.tight_layout()
+    plt.savefig(f'../output/{exp_tag}/split_{split}/stats_ood_scores.png')
+    plt.savefig(f'../output/{exp_tag}/split_{split}/stats_ood_scores.pdf')
+
+
 def plot_scores(width=0.15, fontsize=18):
     xrng = np.arange(len(items)) 
     # score distribution
     fig, ax = plt.subplots(1,1, figsize=(8,5))
+    plt.rcParams["font.family"] = "Arial"
     all_scores = np.array(stats['scores'])
     all_max_tious = stats['max_tious']
     mean_scores = np.zeros((len(tious), 7))
@@ -91,6 +124,7 @@ def plot_scores(width=0.15, fontsize=18):
 def plot_max_tious(width=0.15, fontsize=18):
     xrng = np.arange(len(items)) 
     fig, ax = plt.subplots(1,1, figsize=(8,5))
+    plt.rcParams["font.family"] = "Arial"
     all_max_tious = np.array(stats['max_tious'])
 
     mean_ious = np.zeros((len(tious), 7))
@@ -139,6 +173,7 @@ def plot_wi_curves(fontsize=18):
 
     for clsname, cidx in known_classes.items():
         fig, ax = plt.subplots(1,1, figsize=(8,6))
+        plt.rcParams["font.family"] = "Arial"
         for tidx, (iou, c) in enumerate(zip(tious, colors)):
             pi = precision_ratio_cumsum[tidx, cidx-1, :]
             ri = recall_ratio_cumsum[tidx, :]
@@ -174,9 +209,11 @@ if __name__ == '__main__':
     
     plot_stats()
 
+    plot_ood_scores()
+
     plot_scores()
 
     plot_max_tious()
 
-    plot_wi_curves()
+    # plot_wi_curves()
 

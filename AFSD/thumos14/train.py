@@ -284,7 +284,7 @@ def run_one_epoch(epoch, net, optimizer, data_loader, epoch_step_num, training=T
     loss_trip_val /= (n_iter + 1)
     cost_val /= (n_iter + 1)
 
-    if training:
+    if training and epoch > 10:
         prefix = 'Train'
         save_model(epoch, net, optimizer)
     else:

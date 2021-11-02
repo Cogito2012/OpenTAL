@@ -43,6 +43,7 @@ python AFSD/thumos14/eval_open.py \
     datasets/thumos14/annotations/thumos_gt.json \
     --cls_idx_known ${CLS_IDX_KNOWN} \
     --open_set \
+    --draw_auc \
     --trainset_result ${TRAINSET_RESULT} \
     --all_splits ${ALL_SPLITS} \
     --ood_scoring uncertainty
