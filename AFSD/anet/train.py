@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader
 from AFSD.anet.BDNet import BDNet
 from AFSD.anet.multisegment_loss import MultiSegmentLoss
 from AFSD.common.config import config
+from tensorboardX import SummaryWriter
 
 batch_size = config['training']['batch_size']
 learning_rate = config['training']['learning_rate']
@@ -18,15 +19,21 @@ max_epoch = config['training']['max_epoch']
 num_classes = 2
 checkpoint_path = config['training']['checkpoint_path']
 focal_loss = config['training']['focal_loss']
+edl_loss = config['training']['edl_loss'] if 'edl_loss' in config['training'] else False
+edl_config = config['training']['edl_config'] if 'edl_config' in config['training'] else None
+cls_loss_type = 'edl' if edl_loss else 'focal' # by default, we use focal loss
+os_head = config['model']['os_head'] if 'os_head' in config['model'] else False
 random_seed = config['training']['random_seed']
-ngpu = config['ngpu']
 
 train_state_path = os.path.join(checkpoint_path, 'training')
 if not os.path.exists(train_state_path):
     os.makedirs(train_state_path)
+if config['testing']['split'] == 0:
+    tensorboard_path = os.path.join(checkpoint_path, 'tensorboard')
+    os.makedirs(tensorboard_path, exist_ok=True)
 
-resume = config['training']['resume']
-config['training']['ssl'] = 0.1
+resume = config['training']['resume'] 
+# config['training']['ssl'] = 0.1
 
 
 def print_training_info():
@@ -37,7 +44,10 @@ def print_training_info():
     print('checkpoint path: ', checkpoint_path)
     print('loc weight: ', config['training']['lw'])
     print('cls weight: ', config['training']['cw'])
-    print('piou: ', config['training']['piou'])
+    print('ctr weight: ', config['training']['ctw'])
+    print('iou weight: ', config['training']['piou'])
+    print('ssl weight: ', config['training']['ssl'])
+    print('piou:', config['training']['piou'])
     print('resume: ', resume)
 
 
@@ -76,12 +86,28 @@ def set_rng_state(states):
         torch.cuda.set_rng_state(states[3])
 
 
+def update_the_latest(src_file, dest_file):
+    # source file must exist
+    assert os.path.exists(src_file), "src file does not exist!"
+    # destinate file should be removed first if exists
+    if os.path.lexists(dest_file):
+        os.remove(dest_file)
+    os.symlink(src_file, dest_file)
+
+
 def save_model(epoch, model, optimizer):
-    torch.save(model.module.state_dict(),
-               os.path.join(checkpoint_path, 'checkpoint-{}.ckpt'.format(epoch)))
+    # save the model weights
+    model_file = os.path.join(checkpoint_path, 'checkpoint-{}.ckpt'.format(epoch))
+    torch.save(model.module.state_dict(), model_file)
+    update_the_latest(model_file,
+                     os.path.join(checkpoint_path, 'checkpoint-latest.ckpt'))
+    # save the training status
+    state_file = os.path.join(train_state_path, 'checkpoint_{}.ckpt'.format(epoch))
     torch.save({'optimizer': optimizer.state_dict(),
                 'state': get_rng_states()},
-               os.path.join(train_state_path, 'checkpoint_{}.ckpt'.format(epoch)))
+                state_file)
+    update_the_latest(state_file,
+                     os.path.join(train_state_path, 'checkpoint_latest.ckpt'))
 
 
 def resume_training(resume, model, optimizer):
@@ -97,6 +123,14 @@ def resume_training(resume, model, optimizer):
     return start_epoch
 
 
+def get_grad_norm(model):
+    total_norm = 0.0
+    for p in model.parameters():
+        if p.grad is not None and p.requires_grad:
+            param_norm = p.grad.detach().data.norm(2)
+            total_norm += param_norm ** 2
+    total_norm = total_norm ** 0.5
+    return total_norm
 def calc_bce_loss(start, end, scores):
     start = torch.tanh(start).mean(-1)
     end = torch.tanh(end).mean(-1)
@@ -131,13 +165,17 @@ def forward_one_epoch(net, clips, targets, scores=None, training=True, ssl=True)
         trip_loss = torch.stack(loss_).sum(0)
         return trip_loss
     else:
-        loss_l, loss_c, loss_prop_l, loss_prop_c, loss_ct = CPD_Loss(
+        loss_l, loss_c, loss_prop_l, loss_prop_c, loss_ct, loss_act, loss_prop_act = CPD_Loss(
             [output_dict['loc'], output_dict['conf'],
              output_dict['prop_loc'], output_dict['prop_conf'],
-             output_dict['center'], output_dict['priors']],
+             output_dict['center'], output_dict['priors'], output_dict['act'], output_dict['prop_act']],
             targets)
         loss_start, loss_end = calc_bce_loss(output_dict['start'], output_dict['end'], scores)
-        scores_ = F.interpolate(scores, scale_factor=1.0 / 8)
+        versions = torch.__version__.split('.')
+        if int(versions[0]) == 1 and int(versions[1]) >= 6: # version later than torch 1.6.0
+            scores_ = F.interpolate(scores, scale_factor=1.0 / 8, recompute_scale_factor=True)
+        else:
+            scores_ = F.interpolate(scores, scale_factor=1.0 / 8)
         loss_start_loc_prop, loss_end_loc_prop = calc_bce_loss(output_dict['start_loc_prop'],
                                                                output_dict['end_loc_prop'],
                                                                scores_)
@@ -146,7 +184,7 @@ def forward_one_epoch(net, clips, targets, scores=None, training=True, ssl=True)
                                                                  scores_)
         loss_start = loss_start + 0.1 * (loss_start_loc_prop + loss_start_conf_prop)
         loss_end = loss_end + 0.1 * (loss_end_loc_prop + loss_end_conf_prop)
-        return loss_l, loss_c, loss_prop_l, loss_prop_c, loss_ct, loss_start, loss_end
+        return loss_l, loss_c, loss_prop_l, loss_prop_c, loss_ct, loss_start, loss_end, loss_act, loss_prop_act
 
 
 def run_one_epoch(epoch, net, optimizer, data_loader, epoch_step_num, training=True):
@@ -167,15 +205,20 @@ def run_one_epoch(epoch, net, optimizer, data_loader, epoch_step_num, training=T
     cost_val = 0
     with tqdm.tqdm(data_loader, total=epoch_step_num, ncols=0) as pbar:
         for n_iter, (clips, targets, scores, ssl_clips, ssl_targets, flags) in enumerate(pbar):
-            loss_l, loss_c, loss_prop_l, loss_prop_c, loss_ct, loss_start, loss_end = forward_one_epoch(
+            loss_l, loss_c, loss_prop_l, loss_prop_c, \
+                loss_ct, loss_start, loss_end, loss_act, loss_act_prop = forward_one_epoch(
                 net, clips, targets, scores, training=training, ssl=False)
 
             loss_l = loss_l * config['training']['lw']
             loss_c = loss_c * config['training']['cw']
             loss_prop_l = loss_prop_l * config['training']['lw']
             loss_prop_c = loss_prop_c * config['training']['cw']
-            loss_ct = loss_ct * config['training']['cw']
+            loss_ct = loss_ct * config['training']['ctw']
             cost = loss_l + loss_c + loss_prop_l + loss_prop_c + loss_ct + loss_start + loss_end
+            if os_head:
+                loss_act = loss_act * config['training']['actw']
+                loss_act_prop = loss_act_prop * config['training']['actw']
+                cost = cost + loss_act + loss_act_prop
 
             if flags[0]:
                 loss_trip = forward_one_epoch(net, ssl_clips, ssl_targets, training=training,
@@ -184,10 +227,30 @@ def run_one_epoch(epoch, net, optimizer, data_loader, epoch_step_num, training=T
                 cost = cost + loss_trip
                 loss_trip_val += loss_trip.cpu().detach().numpy()
 
+            cur_iter = i * epoch_step_num + n_iter
             if training:
                 optimizer.zero_grad()
                 cost.backward()
+                grad_norm = get_grad_norm(net)
+                if config['testing']['split'] == 0:
+                    tb_writer.add_scalars(f'stats/grad_norm', {'grad_norm': grad_norm.mean().item()}, cur_iter)
                 optimizer.step()
+
+            # record the loss in tensorboards
+            if config['testing']['split'] == 0:
+                tb_writer.add_scalars(f'train_loss/coarse/loss_loc', {'loss_loc': loss_l.mean().item()}, cur_iter)
+                tb_writer.add_scalars(f'train_loss/coarse/loss_cls', {'loss_cls': loss_c.mean().item()}, cur_iter)
+                tb_writer.add_scalars(f'train_loss/refined/loss_loc', {'loss_loc': loss_prop_l.mean().item()}, cur_iter)
+                tb_writer.add_scalars(f'train_loss/refined/loss_cls', {'loss_cls': loss_prop_c.mean().item()}, cur_iter)
+                tb_writer.add_scalars(f'train_loss/regularizer/loss_quality', {'loss_q': loss_ct.mean().item()}, cur_iter)
+                tb_writer.add_scalars(f'train_loss/regularizer/loss_start', {'loss_start': loss_start.mean().item()}, cur_iter)
+                tb_writer.add_scalars(f'train_loss/regularizer/loss_end', {'loss_end': loss_end.mean().item()}, cur_iter)
+                if flags[0]:
+                    tb_writer.add_scalars(f'train_loss/regularizer/loss_trip', {'loss_trip': loss_trip.mean().item()}, cur_iter)
+                tb_writer.add_scalars(f'train_loss/loss_total', {'loss_total': cost.mean().item()}, cur_iter)
+                if os_head:
+                    tb_writer.add_scalars(f'train_loss/coarse/loss_act', {'loss_act': loss_act.mean().item()}, cur_iter)
+                    tb_writer.add_scalars(f'train_loss/refined/loss_act_prop', {'loss_act': loss_act_prop.mean().item()}, cur_iter)
 
             loss_loc_val += loss_l.cpu().detach().numpy()
             loss_conf_val += loss_c.cpu().detach().numpy()
@@ -209,7 +272,7 @@ def run_one_epoch(epoch, net, optimizer, data_loader, epoch_step_num, training=T
     loss_trip_val /= (n_iter + 1)
     cost_val /= (n_iter + 1)
 
-    if training:
+    if training and epoch > 10:
         prefix = 'Train'
         save_model(epoch, net, optimizer)
     else:
@@ -230,9 +293,10 @@ if __name__ == '__main__':
     """
     Setup model
     """
+    use_edl = config['model']['use_edl'] if 'use_edl' in config['model'] else False
     net = BDNet(in_channels=config['model']['in_channels'],
-                backbone_model=config['model']['backbone_model'])
-    net = nn.DataParallel(net, device_ids=list(range(ngpu))).cuda()
+                backbone_model=config['model']['backbone_model'], use_edl=use_edl)
+    net = nn.DataParallel(net, device_ids=[0]).cuda()
 
     """
     Setup optimizer
@@ -250,7 +314,8 @@ if __name__ == '__main__':
     Setup loss
     """
     piou = config['training']['piou']
-    CPD_Loss = MultiSegmentLoss(num_classes, piou, 1.0, use_focal_loss=focal_loss)
+    num_cls = num_classes - 1 if os_head else num_classes
+    CPD_Loss = MultiSegmentLoss(num_cls, piou, 1.0, cls_loss_type=cls_loss_type, edl_config=edl_config, os_head=os_head)
 
     """
     Setup dataloader
@@ -263,9 +328,15 @@ if __name__ == '__main__':
                                  channels=config['model']['in_channels'],
                                  binary_class=True)
     train_data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True,
-                                   num_workers=8, worker_init_fn=worker_init_fn,
+                                   num_workers=4, worker_init_fn=worker_init_fn,
                                    collate_fn=detection_collate, pin_memory=True, drop_last=True)
     epoch_step_num = len(train_dataset) // batch_size
+    """
+    Setup tensorboard writer (only for the split_0)
+    """
+    if config['testing']['split'] == 0:
+        # tensorboard logging
+        tb_writer = SummaryWriter(tensorboard_path)
 
     """
     Start training
@@ -273,4 +344,7 @@ if __name__ == '__main__':
     start_epoch = resume_training(resume, net, optimizer)
 
     for i in range(start_epoch, max_epoch + 1):
+        if cls_loss_type == 'edl':
+            CPD_Loss.cls_loss.epoch = i
+            CPD_Loss.cls_loss.total_epoch = max_epoch
         run_one_epoch(i, net, optimizer, train_data_loader, len(train_dataset) // batch_size)

@@ -16,11 +16,9 @@ class FocalLoss_Ori(nn.Module):
     :param size_average: (bool, optional) By default, the losses are averaged over each loss element in the batch.
     """
 
-    def __init__(self, num_class, alpha=None, gamma=2, balance_index=-1, size_average=True):
+    def __init__(self, num_class, alpha=[0.25, 0.75], gamma=2, balance_index=-1, size_average=True):
         super(FocalLoss_Ori, self).__init__()
         self.num_class = num_class
-        if alpha is None:
-            alpha = [0.25, 0.75]
         self.alpha = alpha
         self.gamma = gamma
         self.size_average = size_average
@@ -61,13 +59,13 @@ class FocalLoss_Ori(nn.Module):
         # pt = (one_hot_key * logit).sum(1) + epsilon
 
         # ----------memory saving way--------
-        pt = logit.gather(1, target).view(-1) + self.eps  # avoid apply, (N,)
+        pt = logit.gather(1, target).view(-1) + self.eps  # avoid apply
         logpt = pt.log()
 
         if self.alpha.device != logpt.device:
-            self.alpha = self.alpha.to(logpt.device)  # (K+1,)
+            self.alpha = self.alpha.to(logpt.device)
 
-        alpha_class = self.alpha.gather(0, target.view(-1))  # (N,)
+        alpha_class = self.alpha.gather(0, target.view(-1))
         logpt = alpha_class * logpt
         loss = -1 * torch.pow(torch.sub(1.0, pt), self.gamma) * logpt
 
@@ -84,25 +82,9 @@ class EvidenceLoss(nn.Module):
         self.num_cls = num_cls
         self.loss_type = cfg['loss_type']
         self.evidence = cfg['evidence']
-        self.with_focal = cfg['with_focal']
-        self.soft_label = cfg['soft_label'] if 'soft_label' in cfg else 0.0
         self.iou_aware = cfg['iou_aware'] if 'iou_aware' in cfg else False
-        self.with_ghm = cfg['with_ghm'] if 'with_ghm' in cfg else False
         self.with_ibm = cfg['with_ibm'] if 'with_ibm' in cfg else False
         self.eps = 1e-10
-        if self.with_focal:
-            alpha = torch.ones((self.num_cls)) * (1 - cfg['alpha'])  # foreground class
-            alpha[0] = cfg['alpha']  # background class
-            self.alpha = alpha
-            self.gamma = cfg['gamma']
-        if self.with_ghm:
-            self.num_bins = cfg['num_bins']
-            self.momentum = cfg['momentum']
-            self.ghm_start = cfg['ghm_start'] if 'ghm_start' in cfg else 0
-            self.edges = [float(x) / self.num_bins for x in range(self.num_bins+1)]
-            self.edges[-1] += 1e-6
-            if self.momentum > 0:
-                self.acc_sum = [0.0 for _ in range(self.num_bins)]
         if self.with_ibm:
             self.ibm_start = cfg['ibm_start'] if 'ibm_start' in cfg else 0
         self.epoch, self.total_epoch = 0, 25
@@ -119,7 +101,7 @@ class EvidenceLoss(nn.Module):
         iou_reg = - ious * torch.log(1-uncertainty) - (1-ious) * torch.log(uncertainty)
         iou_reg = torch.mean(iou_reg) if mean else torch.sum(iou_reg)
         return iou_reg
-    
+
 
     def forward(self, logit, target):
         """ logit, shape=(N, K+1)
@@ -137,9 +119,7 @@ class EvidenceLoss(nn.Module):
         # one-hot embedding for the target
         y = torch.eye(self.num_cls).to(logit.device, non_blocking=True)
         y = y[target]  # (N, K+1)
-        y[y == 1] = 1 - self.soft_label
-        y[y == 0] = self.soft_label / (self.num_cls - 1)
-        
+
         # get loss func
         loss, func = self.get_loss_func()
         
@@ -159,7 +139,7 @@ class EvidenceLoss(nn.Module):
         out_dict.update({'total_loss': total_loss})
         return total_loss
 
-
+    
     def get_loss_func(self):
         if self.loss_type == 'mse':
             return self.mse_loss, None
@@ -180,8 +160,8 @@ class EvidenceLoss(nn.Module):
 
         if self.evidence == 'softplus':
             return F.softplus(logit)
-        
-
+    
+    
     def mse_loss(self, y, alpha, func=None, target=None, feat_norm=None):
         """Used only for loss_type == 'mse'
         y: the one-hot labels (batchsize, num_classes)
@@ -210,40 +190,10 @@ class EvidenceLoss(nn.Module):
         """
         losses = {}
         S = torch.sum(alpha, dim=1, keepdim=True)  # (B, 1)
-        if self.with_focal:
-            if self.alpha.device != alpha.device:
-                self.alpha = self.alpha.to(alpha.device)
-            pred_scores, pred_cls = torch.max(alpha / S, 1)
-            alpha_class = self.alpha.gather(0, target.view(-1))  # (N,)
-            weight = alpha_class * torch.pow(torch.sub(1.0, pred_scores), self.gamma)  # (N,)
-            cls_loss = torch.sum(y * weight.unsqueeze(-1) * (func(S) - func(alpha)), dim=1)
-        elif self.with_ghm and self.epoch >= self.ghm_start:
+        if self.with_ibm and self.epoch >= self.ibm_start:
             alpha_pred = alpha.detach().clone()  # (N, K)
             uncertainty = self.num_cls / alpha_pred.sum(dim=-1, keepdim=True)  # (N, 1)
-            # weights = torch.pow(1 / alpha_pred - uncertainty, 2)
-            # gradient length
-            grad_norm = torch.abs(1 / alpha_pred - uncertainty) * y  # y_ij * (1/alpha_ij - u_i)
-            n = 0  # n valid bins
-            weights = torch.zeros_like(alpha)
-            for i in range(self.num_bins):
-                inds = (grad_norm >= self.edges[i]) & (grad_norm < self.edges[i+1])
-                num_in_bin = inds.sum().item()
-                if num_in_bin > 0:
-                    if self.momentum > 0:
-                        self.acc_sum[i] = self.momentum * self.acc_sum[i] \
-                            + (1 - self.momentum) * num_in_bin
-                        weights[inds] = 1.0 / self.acc_sum[i]
-                    else:
-                        weights[inds] = 1.0 / num_in_bin
-                    n += 1
-            if n > 0:
-                weights = weights / n
-            # compute the weighted EDL loss
-            cls_loss = torch.sum(y * weights * (func(S) - func(alpha)), dim=1)
-        elif self.with_ibm and self.epoch >= self.ibm_start:
-            alpha_pred = alpha.detach().clone()  # (N, K)
-            uncertainty = self.num_cls / alpha_pred.sum(dim=-1, keepdim=True)  # (N, 1)
-            grad_norm = torch.sum(torch.abs(1 / alpha_pred - uncertainty) * y, dim=1)  # sum_j|y_ij * (1/alpha_ij - u_i)|, (N)
+            grad_norm = torch.sum(torch.abs(1 / alpha_pred - uncertainty) * y, dim=1)  # sum_j|y_ij * (1/alpha_ij - u_i)|
             weights = 1.0 / (grad_norm * feat_norm + self.eps)  # influence-balanced weight
             # compute the weighted EDL loss
             cls_loss = weights * torch.sum(y * (func(S) - func(alpha)), dim=1)

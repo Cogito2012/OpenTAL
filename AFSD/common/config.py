@@ -87,6 +87,10 @@ def get_config():
         data['training']['checkpoint_path'] = data['training']['checkpoint_path'].format(id=args.split)
         data['testing']['checkpoint_path'] = data['testing']['checkpoint_path'].format(id=args.split)
         data['testing']['output_path'] = data['testing']['output_path'].format(id=args.split)
+        video_info_path = data['dataset']['training']['video_info_path']
+        data['dataset']['training']['video_info_path'] = video_info_path.format(id=args.split) if 'split_' in video_info_path else video_info_path
+        video_info_path = data['dataset']['testing']['video_info_path']
+        data['dataset']['testing']['video_info_path'] = video_info_path.format(id=args.split) if 'split_' in video_info_path else video_info_path
     
     return data
 

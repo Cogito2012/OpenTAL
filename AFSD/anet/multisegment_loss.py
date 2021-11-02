@@ -2,77 +2,18 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from AFSD.common.config import config
+from .cls_loss import FocalLoss_Ori, EvidenceLoss, ActionnessLoss
 
 
-class FocalLoss_Ori(nn.Module):
+def log_sum_exp(x):
+    """Utility function for computing log_sum_exp while determining
+    This will be used to determine unaveraged confidence loss across
+    all examples in a batch.
+    Args:
+        x (Variable(tensor)): conf_preds from conf layers
     """
-    This is a implementation of Focal Loss with smooth label cross entropy supported which is proposed in
-    'Focal Loss for Dense Object Detection. (https://arxiv.org/abs/1708.02002)'
-        Focal_Loss= -1*alpha*(1-pt)*log(pt)
-    :param num_class:
-    :param alpha: (tensor) 3D or 4D the scalar factor for this criterion
-    :param gamma: (float,double) gamma > 0 reduces the relative loss for well-classified examples (p>0.5) putting more
-                    focus on hard misclassified example
-    :param smooth: (float,double) smooth value when cross entropy
-    :param size_average: (bool, optional) By default, the losses are averaged over each loss element in the batch.
-    """
-
-    def __init__(self, num_class, alpha=[0.25, 0.75], gamma=2, balance_index=-1, size_average=True):
-        super(FocalLoss_Ori, self).__init__()
-        self.num_class = num_class
-        self.alpha = alpha
-        self.gamma = gamma
-        self.size_average = size_average
-        self.eps = 1e-6
-
-        if isinstance(self.alpha, (list, tuple)):
-            assert len(self.alpha) == self.num_class
-            self.alpha = torch.Tensor(list(self.alpha))
-        elif isinstance(self.alpha, (float, int)):
-            assert 0 < self.alpha < 1.0, 'alpha should be in `(0,1)`)'
-            assert balance_index > -1
-            alpha = torch.ones((self.num_class))
-            alpha *= 1 - self.alpha
-            alpha[balance_index] = self.alpha
-            self.alpha = alpha
-        elif isinstance(self.alpha, torch.Tensor):
-            self.alpha = self.alpha
-        else:
-            raise TypeError('Not support alpha type, expect `int|float|list|tuple|torch.Tensor`')
-
-    def forward(self, logit, target):
-
-        if logit.dim() > 2:
-            # N,C,d1,d2 -> N,C,m (m=d1*d2*...)
-            logit = logit.view(logit.size(0), logit.size(1), -1)
-            logit = logit.transpose(1, 2).contiguous()  # [N,C,d1*d2..] -> [N,d1*d2..,C]
-            logit = logit.view(-1, logit.size(-1))  # [N,d1*d2..,C]-> [N*d1*d2..,C]
-        target = target.view(-1, 1)  # [N,d1,d2,...]->[N*d1*d2*...,1]
-
-        # -----------legacy way------------
-        #  idx = target.cpu().long()
-        # one_hot_key = torch.FloatTensor(target.size(0), self.num_class).zero_()
-        # one_hot_key = one_hot_key.scatter_(1, idx, 1)
-        # if one_hot_key.device != logit.device:
-        #     one_hot_key = one_hot_key.to(logit.device)
-        # pt = (one_hot_key * logit).sum(1) + epsilon
-
-        # ----------memory saving way--------
-        pt = logit.gather(1, target).view(-1) + self.eps  # avoid apply
-        logpt = pt.log()
-
-        if self.alpha.device != logpt.device:
-            self.alpha = self.alpha.to(logpt.device)
-
-        alpha_class = self.alpha.gather(0, target.view(-1))
-        logpt = alpha_class * logpt
-        loss = -1 * torch.pow(torch.sub(1.0, pt), self.gamma) * logpt
-
-        if self.size_average:
-            loss = loss.mean()
-        else:
-            loss = loss.sum()
-        return loss
+    x_max = x.data.max()
+    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
 
 
 def iou_loss(pred, target, weight=None, loss_type='giou', reduction='none'):
@@ -144,16 +85,22 @@ def gen_bounds(priors):
 
 class MultiSegmentLoss(nn.Module):
     def __init__(self, num_classes, overlap_thresh, negpos_ratio, use_gpu=True,
-                 use_focal_loss=False):
+                 cls_loss_type='focal', edl_config=None, os_head=False, size_average=False):
         super(MultiSegmentLoss, self).__init__()
         self.num_classes = num_classes
         self.overlap_thresh = overlap_thresh
         self.negpos_ratio = negpos_ratio
         self.use_gpu = use_gpu
-        self.use_focal_loss = use_focal_loss
-        if self.use_focal_loss:
-            self.focal_loss = FocalLoss_Ori(num_classes, balance_index=0, size_average=False,
-                                            alpha=0.25)
+        self.cls_loss_type = cls_loss_type
+        if self.cls_loss_type == 'focal':
+            self.cls_loss = FocalLoss_Ori(num_classes, balance_index=0, size_average=size_average, alpha=0.25)
+        elif self.cls_loss_type == 'edl':
+            self.cls_loss = EvidenceLoss(num_classes, edl_config, size_average=size_average)
+        self.iou_aware = True if self.cls_loss_type == 'edl' and self.cls_loss.iou_aware else False
+        self.os_head = os_head
+        if self.os_head:
+            self.act_loss = ActionnessLoss(size_average=size_average, weight=0.1)
+        self.size_average = size_average
         self.center_loss = nn.BCEWithLogitsLoss(reduction='sum')
 
     def forward(self, predictions, targets, pre_locs=None):
@@ -163,7 +110,7 @@ class MultiSegmentLoss(nn.Module):
         :return: loc loss and conf loss
         """
         loc_data, conf_data, \
-        prop_loc_data, prop_conf_data, center_data, priors = predictions
+        prop_loc_data, prop_conf_data, center_data, priors, act_data, prop_act_data = predictions
         # priors = priors[0]
         num_batch = loc_data.size(0)
         num_priors = priors.size(0)
@@ -175,7 +122,10 @@ class MultiSegmentLoss(nn.Module):
         loss_ct_list = []
         loss_prop_l_list = []
         loss_prop_c_list = []
+        loss_act_list = []
+        loss_prop_act_list = []
 
+        iou_pred = torch.Tensor(num_priors, num_batch).to(loc_data.device) if self.iou_aware else None
         for idx in range(num_batch):
             loc_t = torch.Tensor(num_priors, 2).to(loc_data.device)
             conf_t = torch.LongTensor(num_priors).to(loc_data.device)
@@ -183,10 +133,13 @@ class MultiSegmentLoss(nn.Module):
             prop_conf_t = torch.LongTensor(num_priors).to(loc_data.device)
 
             loc_p = loc_data[idx]
-            conf_p = conf_data[idx]
+            logit_p = conf_data[idx]
             prop_loc_p = prop_loc_data[idx]
-            prop_conf_p = prop_conf_data[idx]
+            prop_logit_p = prop_conf_data[idx]
             center_p = center_data[idx]
+            if self.os_head:
+                act_p = act_data[idx]
+                prop_act_p = prop_act_data[idx]
 
             with torch.no_grad():
                 # match priors and ground truth segments
@@ -220,6 +173,8 @@ class MultiSegmentLoss(nn.Module):
                 conf_t[:] = conf
 
                 iou = iou_loss(loc_p, loc_t, loss_type='calc iou')  # [num_priors]
+                if self.iou_aware:
+                    iou_pred[:, idx] = iou
                 if (conf > 0).sum() > 0:
                     max_iou, max_iou_idx = iou[conf > 0].max(0)
                 else:
@@ -268,23 +223,62 @@ class MultiSegmentLoss(nn.Module):
             else:
                 loss_ct = prop_pre_loc.sum()
 
-            # softmax focal loss
-            conf_p = conf_p.view(-1, num_classes)
+            # classification loss in the coarse stage
+            conf_p = logit_p.view(-1, num_classes)
             targets_conf = conf_t.view(-1, 1)
-            conf_p = F.softmax(conf_p, dim=1)
-            loss_c = self.focal_loss(conf_p, targets_conf)
+            if self.cls_loss_type == 'focal':
+                conf_p = F.softmax(conf_p, dim=1)
+            if self.os_head:
+                inds_keep = targets_conf > 0  # (N,1)
+                targets_conf = targets_conf[inds_keep].unsqueeze(-1) - 1  # (M,1), starting from 0
+                conf_p = conf_p[inds_keep.squeeze()]  # (M,15)
+            if targets_conf.numel() > 0:
+                loss_c = self.cls_loss(conf_p, targets_conf)
+            else:  # empty, do not need to compute loss
+                loss_c = torch.tensor(0.0).to(conf_p.device)
 
-            prop_conf_p = prop_conf_p.view(-1, num_classes)
-            prop_conf_p = F.softmax(prop_conf_p, dim=1)
-            loss_prop_c = self.focal_loss(prop_conf_p, prop_conf_t)
+            if self.os_head:
+                act_scores = act_p.view(-1, 1)  # [N, 1]
+                targets = inds_keep.to(torch.float32)  # [N, 1]
+                loss_act, AN = self.act_loss(act_scores, targets)
+
+            # classification loss in the refined stage
+            prop_conf_p = prop_logit_p.view(-1, num_classes)
+            prop_conf_t = prop_conf_t.view(-1, 1)
+            if self.cls_loss_type == 'focal':
+                prop_conf_p = F.softmax(prop_conf_p, dim=1)
+            if self.os_head:
+                inds_keep = prop_conf_t > 0  # (N,1)
+                prop_conf_t = prop_conf_t[inds_keep].unsqueeze(-1) - 1  # (M,1), starting from 0
+                prop_conf_p = prop_conf_p[inds_keep.squeeze()]  # (M,15)
+            if prop_conf_t.numel() > 0:
+                loss_prop_c = self.cls_loss(prop_conf_p, prop_conf_t)
+            else:  # empty, do not need to compute loss
+                loss_prop_c = torch.tensor(0.0).to(prop_conf_p.device)
+
+            if self.iou_aware:
+                logit_pred = prop_conf_data[idx].view(-1, num_classes)
+                loss_iouc = self.cls_loss.iou_calib(logit_pred, iou_pred[:, idx].view(-1), mean=True)
+
+            if self.os_head:
+                prop_act_scores = prop_act_p.view(-1, 1)  # [N, 1]
+                targets = inds_keep.to(torch.float32)  # [N, 1]
+                loss_prop_act, PAN = self.act_loss(prop_act_scores, targets)
 
             N = max(pos.sum(), 1)
             PN = max(prop_pos.sum(), 1)
-            loss_l /= N
-            loss_c /= N
-            loss_prop_l /= PN
-            loss_prop_c /= PN
-            loss_ct /= N
+            loss_l /= N if not self.size_average else loss_l
+            loss_c /= N if not self.size_average else loss_c
+            loss_prop_l /= PN if not self.size_average else loss_prop_l
+            loss_prop_c /= PN if not self.size_average else loss_prop_c
+            if self.iou_aware:
+                loss_prop_c += loss_iouc
+            loss_ct /= N if not self.size_average else loss_ct
+            if self.os_head:
+                loss_act = loss_act / AN if not self.size_average else loss_act
+                loss_prop_act = loss_prop_act / PAN if not self.size_average else loss_prop_act
+                loss_act_list.append(loss_act)
+                loss_prop_act_list.append(loss_prop_act)
 
             loss_l_list.append(loss_l)
             loss_c_list.append(loss_c)
@@ -298,5 +292,10 @@ class MultiSegmentLoss(nn.Module):
         loss_ct = sum(loss_ct_list) / num_batch
         loss_prop_l = sum(loss_prop_l_list) / num_batch
         loss_prop_c = sum(loss_prop_c_list) / num_batch
-
-        return loss_l, loss_c, loss_prop_l, loss_prop_c, loss_ct
+        if self.os_head:
+            loss_act = sum(loss_act_list) / num_batch
+            loss_prop_act = sum(loss_prop_act_list) / num_batch
+        else:
+            loss_act, loss_prop_act = None, None
+        
+        return loss_l, loss_c, loss_prop_l, loss_prop_c, loss_ct, loss_act, loss_prop_act

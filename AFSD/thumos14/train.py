@@ -353,7 +353,7 @@ if __name__ == '__main__':
     start_epoch = resume_training(resume, net, optimizer)
 
     for i in range(start_epoch, max_epoch + 1):
-        if cls_loss_type == 'edl' and CPD_Loss.cls_loss.with_ghm:
+        if cls_loss_type == 'edl':
             CPD_Loss.cls_loss.epoch = i
             CPD_Loss.cls_loss.total_epoch = max_epoch
         run_one_epoch(i, net, optimizer, train_data_loader, len(train_dataset) // batch_size)
