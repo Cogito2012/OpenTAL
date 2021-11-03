@@ -28,7 +28,7 @@ model:
   backbone_model: models/i3d_models/rgb_imagenet.pt
 
 training:
-  batch_size: 1
+  batch_size: 2
   learning_rate: 1e-4
   weight_decay: 1e-4
   max_epoch: 25
@@ -40,6 +40,11 @@ training:
     iou_aware: true
     with_ibm: true
     ibm_start: 10
+    ibm_coeff: 10
+    with_ghm: false
+    num_bins: 30
+    momentum: 0.85
+    ghm_start: 10
   checkpoint_path: models/anet/opental/split_{id:d}/
   random_seed: 2020
 
@@ -49,5 +54,5 @@ testing:
   nms_thresh: 0.5
   nms_sigma: 0.85
   checkpoint_path: models/anet/opental/split_{id:d}/checkpoint-latest.ckpt
-  output_path: output/opental/split_{id:d}
+  output_path: output/anet/opental/split_{id:d}
   output_json: detection_results.json

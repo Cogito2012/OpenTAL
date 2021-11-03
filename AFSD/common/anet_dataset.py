@@ -40,10 +40,13 @@ def get_video_info(video_info_path, subset='training'):
     return video_info
 
 
-def split_videos(video_info, clip_length, stride, binary_class=False):
+def split_videos(video_info, clip_length, video_dir, binary_class=False):
     training_list = []
     min_anno_dict = {}
     for video_name in list(video_info.keys())[:]:
+        npy_data = os.path.join(video_dir, video_name + '.npy')
+        if not os.path.exists(npy_data):
+            continue
         frame_num = min(video_info[video_name]['frame_num'], clip_length)
         annos = []
         min_anno = clip_length
@@ -135,7 +138,7 @@ class ANET_Dataset(Dataset):
         self.training = training
         subset = 'training' if training else 'validation'
         video_info = get_video_info(video_info_path, subset)
-        self.training_list, self.th = split_videos(video_info, clip_length, stride, binary_class)
+        self.training_list, self.th = split_videos(video_info, clip_length, video_dir, binary_class)
         self.clip_length = clip_length
         self.crop_size = crop_size
         self.rgb_norm = rgb_norm

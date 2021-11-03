@@ -301,6 +301,30 @@ def plot_grad_hist(save_file, all_grads, xlim=(-0.1, 0.1), ylim=(0, 100), fontsi
     plt.savefig(save_file)
 
 
+def plot_gradnorm_weight(save_file, all_grad_norms, xlim=(0, 1), ylim=(0, 100), fontsize=18):
+    grad_norm = np.concatenate(all_grad_norms, axis=0).sum(axis=-1)  # sum for one-hot grad_norms
+    x_vals = np.linspace(grad_norm.min(), grad_norm.max(), num=200)
+    weights = 1.0 / np.exp(10* x_vals)
+    # plot figure
+    fig, ax1 = plt.subplots(1,1, figsize=(8,5))
+    ax1.hist(grad_norm, 200, density=True, alpha=0.8)
+    ax1.set_yscale('log')
+    ax1.set_ylabel("probability density", fontsize=fontsize)
+    # ax1.set_ylim()
+    ax1.legend(["frequency of gradient norm"], fontsize=fontsize, loc='upper left')
+
+    ax2 = ax1.twinx()
+    ax2.plot(x_vals, weights, 'r-', linewidth=2)
+    ax2.set_yscale('log')
+    ax2.set_ylabel('weights', fontsize=fontsize)
+    ax2.legend(['weights'], fontsize=fontsize, loc='upper right')
+
+    plt.xlim(xlim) if xlim is not None else [min(grad_norm), max(grad_norm)]
+    plt.tight_layout()
+    plt.savefig(save_file)
+
+
+
 if __name__ == '__main__':
 
     cfg = get_basic_config(config)
@@ -323,4 +347,6 @@ if __name__ == '__main__':
 
     plot_grad_hist(os.path.join(cfg.output_path, 'grad_hist.png'), all_grads, xlim=(-0.1,0.1), ylim=(0,100))
     plot_grad_hist(os.path.join(cfg.output_path, 'grad_prop_hist.png'), all_grads_prop, xlim=None, ylim=None)
+
+    plot_gradnorm_weight(os.path.join(cfg.output_path, 'gradnorm_weight.png'), all_grad_norms, xlim=(0, 0.25))
     

@@ -105,6 +105,7 @@ class EvidenceLoss(nn.Module):
                 self.acc_sum = [0.0 for _ in range(self.num_bins)]
         if self.with_ibm:
             self.ibm_start = cfg['ibm_start'] if 'ibm_start' in cfg else 0
+            self.coeff = cfg['ibm_coeff'] if 'ibm_coeff' in cfg else 10
         self.epoch, self.total_epoch = 0, 25
         self.size_average = size_average
 
@@ -244,7 +245,7 @@ class EvidenceLoss(nn.Module):
             alpha_pred = alpha.detach().clone()  # (N, K)
             uncertainty = self.num_cls / alpha_pred.sum(dim=-1, keepdim=True)  # (N, 1)
             grad_norm = torch.sum(torch.abs(1 / alpha_pred - uncertainty) * y, dim=1)  # sum_j|y_ij * (1/alpha_ij - u_i)|, (N)
-            weights = 1.0 / (grad_norm * feat_norm + self.eps)  # influence-balanced weight
+            weights = 1.0 / (feat_norm * torch.exp(self.coeff * grad_norm) + self.eps)  # influence-balanced weight
             # compute the weighted EDL loss
             cls_loss = weights * torch.sum(y * (func(S) - func(alpha)), dim=1)
         else:

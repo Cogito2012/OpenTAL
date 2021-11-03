@@ -83,10 +83,20 @@ class EvidenceLoss(nn.Module):
         self.loss_type = cfg['loss_type']
         self.evidence = cfg['evidence']
         self.iou_aware = cfg['iou_aware'] if 'iou_aware' in cfg else False
+        self.with_ghm = cfg['with_ghm'] if 'with_ghm' in cfg else False
         self.with_ibm = cfg['with_ibm'] if 'with_ibm' in cfg else False
         self.eps = 1e-10
+        if self.with_ghm:
+            self.num_bins = cfg['num_bins']
+            self.momentum = cfg['momentum']
+            self.ghm_start = cfg['ghm_start'] if 'ghm_start' in cfg else 0
+            self.edges = [float(x) / self.num_bins for x in range(self.num_bins+1)]
+            self.edges[-1] += 1e-6
+            if self.momentum > 0:
+                self.acc_sum = [0.0 for _ in range(self.num_bins)]
         if self.with_ibm:
             self.ibm_start = cfg['ibm_start'] if 'ibm_start' in cfg else 0
+            self.coeff = cfg['ibm_coeff'] if 'ibm_coeff' in cfg else 10
         self.epoch, self.total_epoch = 0, 25
         self.size_average = size_average
 
@@ -190,11 +200,33 @@ class EvidenceLoss(nn.Module):
         """
         losses = {}
         S = torch.sum(alpha, dim=1, keepdim=True)  # (B, 1)
-        if self.with_ibm and self.epoch >= self.ibm_start:
+        if self.with_ghm and self.epoch >= self.ghm_start:
             alpha_pred = alpha.detach().clone()  # (N, K)
             uncertainty = self.num_cls / alpha_pred.sum(dim=-1, keepdim=True)  # (N, 1)
-            grad_norm = torch.sum(torch.abs(1 / alpha_pred - uncertainty) * y, dim=1)  # sum_j|y_ij * (1/alpha_ij - u_i)|
-            weights = 1.0 / (grad_norm * feat_norm + self.eps)  # influence-balanced weight
+            # gradient length
+            grad_norm = torch.abs(1 / alpha_pred - uncertainty) * y  # y_ij * (1/alpha_ij - u_i)
+            n = 0  # n valid bins
+            weights = torch.zeros_like(alpha)
+            for i in range(self.num_bins):
+                inds = (grad_norm >= self.edges[i]) & (grad_norm < self.edges[i+1])
+                num_in_bin = inds.sum().item()
+                if num_in_bin > 0:
+                    if self.momentum > 0:
+                        self.acc_sum[i] = self.momentum * self.acc_sum[i] \
+                            + (1 - self.momentum) * num_in_bin
+                        weights[inds] = 1.0 / self.acc_sum[i]
+                    else:
+                        weights[inds] = 1.0 / num_in_bin
+                    n += 1
+            if n > 0:
+                weights = weights / n
+            # compute the weighted EDL loss
+            cls_loss = torch.sum(y * weights * (func(S) - func(alpha)), dim=1)
+        elif self.with_ibm and self.epoch >= self.ibm_start:
+            alpha_pred = alpha.detach().clone()  # (N, K)
+            uncertainty = self.num_cls / alpha_pred.sum(dim=-1, keepdim=True)  # (N, 1)
+            grad_norm = torch.sum(torch.abs(1 / alpha_pred - uncertainty) * y, dim=1)  # sum_j|y_ij * (1/alpha_ij - u_i)|, (N)
+            weights = 1.0 / (feat_norm * torch.exp(self.coeff * grad_norm) + self.eps)  # influence-balanced weight
             # compute the weighted EDL loss
             cls_loss = weights * torch.sum(y * (func(S) - func(alpha)), dim=1)
         else:
