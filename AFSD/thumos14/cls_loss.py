@@ -105,7 +105,11 @@ class EvidenceLoss(nn.Module):
                 self.acc_sum = [0.0 for _ in range(self.num_bins)]
         if self.with_ibm:
             self.ibm_start = cfg['ibm_start'] if 'ibm_start' in cfg else 0
-            self.coeff = cfg['ibm_coeff'] if 'ibm_coeff' in cfg else 10
+            # self.coeff = cfg['ibm_coeff'] if 'ibm_coeff' in cfg else 10
+            self.num_bins = cfg['num_bins'] if 'num_bins' in cfg else 50
+            self.weight_buckets = [float(x) / self.num_bins for x in range(self.num_bins+1)]
+            self.weight_accum = torch.tensor([1.0 for _ in range(self.num_bins)]).cuda()
+            self.momentum = cfg['momentum'] if 'momentum' in cfg else 0.99
         self.epoch, self.total_epoch = 0, 25
         self.size_average = size_average
 
@@ -245,7 +249,14 @@ class EvidenceLoss(nn.Module):
             alpha_pred = alpha.detach().clone()  # (N, K)
             uncertainty = self.num_cls / alpha_pred.sum(dim=-1, keepdim=True)  # (N, 1)
             grad_norm = torch.sum(torch.abs(1 / alpha_pred - uncertainty) * y, dim=1)  # sum_j|y_ij * (1/alpha_ij - u_i)|, (N)
-            weights = 1.0 / (feat_norm * torch.exp(self.coeff * grad_norm) + self.eps)  # influence-balanced weight
+            # weights = 1.0 / (feat_norm * torch.exp(self.coeff * grad_norm) + self.eps)  # influence-balanced weight (exp form)
+            grad_hat = grad_norm * feat_norm.detach()
+            bin_locs = torch.ceil(grad_norm * self.num_bins).long()  # range from 1 to 51
+            for i in range(self.num_bins):
+                inds = bin_locs == i + 1
+                if inds.sum().item() > 0:
+                    self.weight_accum[i] = self.momentum * self.weight_accum[i] + (1 - self.momentum) * grad_hat[inds].mean()
+            weights = self.weight_accum[bin_locs-1]
             # compute the weighted EDL loss
             cls_loss = weights * torch.sum(y * (func(S) - func(alpha)), dim=1)
         else:

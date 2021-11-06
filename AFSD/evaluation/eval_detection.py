@@ -38,7 +38,8 @@ class ANETdetection(object):
                  draw_auc=False,
                  curve_data_path=None,
                  verbose=False, 
-                 check_status=False):
+                 check_status=False,
+                 dataset='thumos14'):
         if not ground_truth_filename:
             raise IOError('Please input a valid ground truth file.')
         if not prediction_filename:
@@ -55,6 +56,8 @@ class ANETdetection(object):
         self.pred_fields = prediction_fields
         self.ap = None
         self.check_status = check_status
+        assert dataset in ['thumos14', 'anet']
+        self.dataset = dataset
         # Retrieve blocked videos from server.
 
         if self.check_status:
@@ -81,12 +84,17 @@ class ANETdetection(object):
             self.stats = {}
 
     def get_activity_index(self, class_info_path):
-        txt = np.loadtxt(class_info_path, dtype=str)
         class_to_idx = {}
         if self.openset:
             class_to_idx['__unknown__'] = 0  # 0 is reserved for unknown in open set
-        for idx, l in enumerate(txt):
-            class_to_idx[l[1]] = idx + 1  # starting from 1 to K (K=15 for thumos14)
+        if self.dataset == 'thumos14':
+            txt = np.loadtxt(class_info_path, dtype=str)
+            for idx, l in enumerate(txt):
+                class_to_idx[l[1]] = idx + 1  # starting from 1 to K (K=15 for thumos14)
+        else:
+            with open(class_info_path, 'r') as f:
+                for idx, line in enumerate(f.readlines()):
+                    class_to_idx[line.strip()] = idx + 1    # starting from 1 to K (K=150 for activitynet)
         return class_to_idx
 
     def _import_ground_truth(self, ground_truth_filename):

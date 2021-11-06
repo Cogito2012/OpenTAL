@@ -1,14 +1,11 @@
 import argparse
-import pickle
-
-from matplotlib.pyplot import axis
-from AFSD.evaluation.eval_detection import ANETdetection
-import os, json
 import numpy as np
+from AFSD.evaluation.eval_detection import ANETdetection
+import os, json, pickle
 
 parser = argparse.ArgumentParser()
 parser.add_argument('output_json', type=str)
-parser.add_argument('gt_json', type=str, default='datasets/thumos14/annotations/thumos_gt.json', nargs='?')
+parser.add_argument('gt_json', type=str, nargs='?')
 parser.add_argument('--cls_idx_known', type=str)
 parser.add_argument('--all_splits', nargs='+', type=int)
 parser.add_argument('--open_set', action='store_true')
@@ -17,7 +14,7 @@ parser.add_argument('--ood_scoring', type=str, default='confidence', choices=['u
 parser.add_argument('--trainset_result', type=str)
 args = parser.parse_args()
 
-tious = [0.3, 0.4, 0.5, 0.6, 0.7]
+tious = [0.1, 0.2, 0.3, 0.4, 0.5]
 
 
 def read_threshold(trainset_result):
@@ -33,26 +30,29 @@ aucROCs_all, average_aucROC_all = [], []
 aucPRs_all, average_aucPR_all = [], []
 for split in args.all_splits:
     # GT file and Pred file
-    gt_file = args.gt_json if args.open_set else args.gt_json.format(id=split)
+    gt_file = args.gt_json.format(id=split)
     pred_file = args.output_json.format(id=split)
     cls_idx_known = args.cls_idx_known.format(id=split)
     # read threshold value
     threshold = read_threshold(args.trainset_result.format(id=split)) if args.open_set else 0
-    auc_data_path = os.path.join(os.path.join(os.path.dirname(pred_file), 'auc_data'))
-    os.makedirs(auc_data_path, exist_ok=True)
+    auc_data_path = None
+    if args.draw_auc:
+        auc_data_path = os.path.join(os.path.join(os.path.dirname(pred_file), 'auc_data'))
+        os.makedirs(auc_data_path, exist_ok=True)
     # instantiate evaluator
     anet_detection = ANETdetection(
         ground_truth_filename=gt_file,
         prediction_filename=pred_file,
         cls_idx_detection=cls_idx_known,
-        subset='test', 
+        subset='validation', 
         openset=args.open_set,
         ood_threshold=threshold,
         ood_scoring=args.ood_scoring,
         tiou_thresholds=tious,
         draw_auc=args.draw_auc,
         curve_data_path=auc_data_path,
-        verbose=False)
+        verbose=False,
+        dataset='anet')
     print_str = f'Running the evaluation on split {split}'
     if args.open_set:
         print_str = print_str + f' with threshold {threshold:.12f}...'
@@ -62,11 +62,7 @@ for split in args.all_splits:
     if args.open_set:
         # evaluate AUC of ROC and PR
         auc_ROC, auc_PR = anet_detection.evaluate(type='AUC')
-        # # evaluate the Wilderness Impact
-        # mWIs, average_mWI, wi = anet_detection.evaluate(type='WI')
-        # with open(os.path.join(os.path.dirname(pred_file), 'open_stats.pkl'), 'wb') as f:
-        #     pickle.dump(anet_detection.stats, f, pickle.HIGHEST_PROTOCOL)
-    
+
     # report
     eval_filename = 'eval_open.txt' if args.open_set else 'eval.txt'
     with open(os.path.join(os.path.dirname(pred_file), eval_filename), 'w') as f:

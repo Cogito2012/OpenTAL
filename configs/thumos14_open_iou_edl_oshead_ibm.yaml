@@ -45,7 +45,8 @@ training:
     gamma: 2
     with_ibm: true
     ibm_start: 10
-    ibm_coeff: 10
+    momentum: 0.99
+    num_bins: 50
   checkpoint_path: ./models/thumos14/edl_oshead_iou_ibm/split_{id:d}/
   random_seed: 2020
 

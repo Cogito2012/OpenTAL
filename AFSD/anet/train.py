@@ -328,7 +328,7 @@ if __name__ == '__main__':
                                  channels=config['model']['in_channels'],
                                  binary_class=True)
     train_data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True,
-                                   num_workers=8, worker_init_fn=worker_init_fn,
+                                   num_workers=4, worker_init_fn=worker_init_fn,
                                    collate_fn=detection_collate, pin_memory=True, drop_last=True)
     epoch_step_num = len(train_dataset) // batch_size
     """
