@@ -8,9 +8,6 @@ from test import get_basic_config, inference_thread
 import multiprocessing as mp
 import threading
 
-global result_dict
-result_dict = mp.Manager().dict()
-
 
 
 def compute_threshold(result_dict, scoring='confidence'):
@@ -42,6 +39,7 @@ def thresholding(cfg, output_file, thread_num=1):
 
     video_num = len(video_list)
     per_thread_video_num = video_num // thread_num
+    result_dict = mp.Manager().dict()
 
     for i in range(thread_num):
         if i == thread_num - 1:
@@ -49,7 +47,7 @@ def thresholding(cfg, output_file, thread_num=1):
         else:
             sub_video_list = video_list[i * per_thread_video_num: (i + 1) * per_thread_video_num]
         # inference_thread(lock, i, sub_video_list, train_cls_data, cfg)
-        p = mp.Process(target=inference_thread, args=(lock, i, sub_video_list, train_cls_data, cfg))
+        p = mp.Process(target=inference_thread, args=(lock, i, sub_video_list, train_cls_data, cfg, result_dict))
         p.start()
         processes.append(p)
 

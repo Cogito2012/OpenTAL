@@ -38,13 +38,10 @@ training:
     evidence: exp
     loss_type: log
     iou_aware: true
-    with_ibm: true
+    with_ibm: false
     ibm_start: 10
-    ibm_coeff: 10
-    with_ghm: false
-    num_bins: 30
-    momentum: 0.85
-    ghm_start: 10
+    momentum: 0.99
+    num_bins: 50
   checkpoint_path: models/anet/opental/split_{id:d}/
   random_seed: 2020
 

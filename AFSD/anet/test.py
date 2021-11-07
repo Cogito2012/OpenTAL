@@ -13,8 +13,7 @@ from AFSD.common.config import config
 import multiprocessing as mp
 import threading
 
-global result_dict
-result_dict = mp.Manager().dict()
+
 
 def get_basic_config(config, dataset='testing'):
     class cfg: pass
@@ -182,7 +181,7 @@ def get_video_prediction(output, pred_class, pred_conf, duration, cfg, cls_rng=N
     return proposal_list
 
 
-def inference_thread(lock, pid, video_list, cls_data, cfg):
+def inference_thread(lock, pid, video_list, cls_data, cfg, result_dict):
 
     torch.cuda.set_device(pid)
     net = BDNet(in_channels=cfg.input_channels,
@@ -253,6 +252,7 @@ def testing(cfg, output_file, thread_num=1):
 
     video_num = len(video_list)
     per_thread_video_num = video_num // thread_num
+    result_dict = mp.Manager().dict()
 
     for i in range(thread_num):
         if i == thread_num - 1:
@@ -260,7 +260,7 @@ def testing(cfg, output_file, thread_num=1):
         else:
             sub_video_list = video_list[i * per_thread_video_num: (i + 1) * per_thread_video_num]
         # inference_thread(lock, i, sub_video_list, test_cls_data, cfg)
-        p = mp.Process(target=inference_thread, args=(lock, i, sub_video_list, test_cls_data, cfg))
+        p = mp.Process(target=inference_thread, args=(lock, i, sub_video_list, test_cls_data, cfg, result_dict))
         p.start()
         processes.append(p)
 
