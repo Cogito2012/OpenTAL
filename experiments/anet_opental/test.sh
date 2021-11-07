@@ -7,7 +7,7 @@ source activate afsd
 python setup.py develop
 
 GPU_ID=$1
-ALL_SPLITS="0 1 2"
+ALL_SPLITS="0 1"
 EXP_TAG="opental"
 OOD_SCORING="uncertainty"
 
