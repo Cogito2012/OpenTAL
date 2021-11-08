@@ -69,7 +69,7 @@ def calc_ioa(pred, target):
 
 class MultiSegmentLoss(nn.Module):
     def __init__(self, num_classes, overlap_thresh, negpos_ratio, use_gpu=True, 
-                 cls_loss_type='focal', edl_config=None, os_head=False, size_average=False):
+                 cls_loss_type='focal', edl_config=None, os_head=False, act_config=None, size_average=False):
         super(MultiSegmentLoss, self).__init__()
         self.num_classes = num_classes
         self.overlap_thresh = overlap_thresh
@@ -83,7 +83,7 @@ class MultiSegmentLoss(nn.Module):
         self.iou_aware = True if self.cls_loss_type == 'edl' and self.cls_loss.iou_aware else False
         self.os_head = os_head
         if self.os_head:
-            self.act_loss = ActionnessLoss(size_average=size_average, weight=0.1)
+            self.act_loss = ActionnessLoss(size_average=size_average, cfg=act_config)
         self.size_average = size_average
         self.center_loss = nn.BCEWithLogitsLoss(reduction='sum')
 

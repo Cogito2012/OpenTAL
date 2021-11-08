@@ -277,11 +277,15 @@ class EvidenceLoss(nn.Module):
 
 
 class ActionnessLoss(nn.Module):
-    def __init__(self, size_average=False, weight=0.1, margin=1.0):
+    def __init__(self, size_average=False, cfg=None):
         super(ActionnessLoss, self).__init__()
         self.size_average = size_average
-        self.weight = weight
-        self.margin = margin
+        if cfg is not None:
+            self.weight = cfg['weight'] if 'weight' in cfg else 0.1
+            self.margin = cfg['margin'] if 'margin' in cfg else 1.0
+        else:
+            self.weight = 0.1
+            self.margin = 1.0
 
     def forward(self, logit, target):
         """ logit, shape=(N, 1), unbounded logits

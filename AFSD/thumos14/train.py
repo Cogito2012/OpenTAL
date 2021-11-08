@@ -25,6 +25,7 @@ edl_loss = config['training']['edl_loss'] if 'edl_loss' in config['training'] el
 edl_config = config['training']['edl_config'] if 'edl_config' in config['training'] else None
 cls_loss_type = 'edl' if edl_loss else 'focal' # by default, we use focal loss
 os_head = config['model']['os_head'] if 'os_head' in config['model'] else False
+act_config = config['training']['act_config'] if 'act_config' in config['training'] else None
 random_seed = config['training']['random_seed']
 
 train_state_path = os.path.join(checkpoint_path, 'training')
@@ -322,7 +323,7 @@ if __name__ == '__main__':
     """
     piou = config['training']['piou']
     num_cls = num_classes - 1 if os_head else num_classes
-    CPD_Loss = MultiSegmentLoss(num_cls, piou, 1.0, cls_loss_type=cls_loss_type, edl_config=edl_config, os_head=os_head)
+    CPD_Loss = MultiSegmentLoss(num_cls, piou, 1.0, cls_loss_type=cls_loss_type, edl_config=edl_config, os_head=os_head, act_config=act_config)
 
     """
     Setup dataloader
