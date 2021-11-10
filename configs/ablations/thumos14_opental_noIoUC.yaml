@@ -39,15 +39,18 @@ training:
   edl_config:
     evidence: exp
     loss_type: log
-    iou_aware: true
+    iou_aware: false
     with_focal: false
     alpha: 0.25
     gamma: 2
-    with_ghm: true
-    num_bins: 30
-    momentum: 0.85
-    ghm_start: 10
-  checkpoint_path: ./models/thumos14/edl_oshead_iou_ghm/split_{id:d}/
+    with_ibm: true
+    ibm_start: 10
+    momentum: 0.99
+    num_bins: 50
+  act_config:
+    margin: 1.0
+    weight: 0
+  checkpoint_path: ./models/thumos14/opental_noIoUC/split_{id:d}/
   random_seed: 2020
 
 testing:
@@ -55,6 +58,6 @@ testing:
   top_k: 5000
   nms_thresh: 0.5
   nms_sigma: 0.5
-  checkpoint_path: ./models/thumos14/edl_oshead_iou_ghm/split_{id:d}/checkpoint-latest.ckpt
-  output_path: ./output/edl_oshead_iou_ghm/split_{id:d}
+  checkpoint_path: ./models/thumos14/opental_noIoUC/split_{id:d}/checkpoint-latest.ckpt
+  output_path: ./output/opental_noIoUC/split_{id:d}
   output_json: detection_results.json

@@ -23,27 +23,15 @@ model:
   in_channels: 3
   freeze_bn: true
   freeze_bn_affine: true
-  use_edl: true
-  evidence: exp
-  dropout: 0
   backbone_model: ./models/i3d_models/rgb_imagenet.pt
 
 training:
   batch_size: 1
   learning_rate: 1e-5
   weight_decay: 1e-3
-  max_epoch: 25
-  focal_loss: false
-  edl_loss: true
-  edl_config:
-    evidence: exp
-    loss_type: log
-    soft_label: 0
-    iou_aware: true
-    with_focal: false
-    alpha: 0.25
-    gamma: 2
-  checkpoint_path: ./models/thumos14/edl_iou/split_{id:d}/
+  max_epoch: 16
+  focal_loss: true
+  checkpoint_path: ./models/thumos14/softmax/split_{id:d}/
   random_seed: 2020
 
 testing:
@@ -51,6 +39,6 @@ testing:
   top_k: 5000
   nms_thresh: 0.5
   nms_sigma: 0.5
-  checkpoint_path: ./models/thumos14/edl_iou/split_{id:d}/checkpoint-latest.ckpt
-  output_path: ./output/edl_iou/split_{id:d}
+  checkpoint_path: ./models/thumos14/softmax/split_{id:d}/checkpoint-latest.ckpt
+  output_path: ./output/softmax/split_{id:d}
   output_json: detection_results.json

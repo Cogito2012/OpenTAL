@@ -10,12 +10,12 @@ ALL_SPLITS="0 1 2"
 
 for SPLIT in ${ALL_SPLITS}
 do
-    PRED_FILE=output/edl_15kc/split_${SPLIT}/thumos14_open_trainset.json
+    PRED_FILE=output/open_edl/split_${SPLIT}/thumos14_open_trainset.json
     if [ ! -f $PRED_FILE ]; then
         # run RGB model
         echo "Threshold the RGB model on Thumos14 Open Set (Split=${SPLIT}):"
         CUDA_VISIBLE_DEVICES=${GPU_ID} python AFSD/thumos14/threshold.py \
-            configs/thumos14_open_edl_15kc.yaml \
+            configs/thumos14_open_edl.yaml \
             --open_set \
             --split=${SPLIT} \
             --ood_scoring uncertainty \

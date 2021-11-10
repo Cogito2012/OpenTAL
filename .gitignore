@@ -6,6 +6,7 @@ cuhk-val/*
 *logs
 model.txt
 experiments/figs
+*backup*
 
 # ignored files
 .DS_Store

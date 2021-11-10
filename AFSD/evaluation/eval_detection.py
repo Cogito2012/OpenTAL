@@ -187,6 +187,14 @@ class ANETdetection(object):
                     res_score = 1 - result['uncertainty'] * result['actionness']
                     uncertainty_lst.append(result['uncertainty'])
                     actness_lst.append(result['actionness'])
+                elif self.ood_scoring == 'a_by_inv_u':
+                    res_score = 1 - result['actionness'] / (1 - result['uncertainty'])
+                    uncertainty_lst.append(result['uncertainty'])
+                    actness_lst.append(result['actionness'])
+                elif self.ood_scoring == 'u_by_inv_a':
+                    res_score = 1 - result['uncertainty'] / (1 - result['actionness'] + 1e-6)
+                    uncertainty_lst.append(result['uncertainty'])
+                    actness_lst.append(result['actionness'])
                 ood_score_lst.append(res_score)
                 if self.openset and res_score < self.ood_threshold:
                     label = self.activity_index['__unknown__']  # reject the unknown

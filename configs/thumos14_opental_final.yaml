@@ -50,7 +50,7 @@ training:
   act_config:
     margin: 1.0
     weight: 0
-  checkpoint_path: ./models/thumos14/opental_norank/split_{id:d}/
+  checkpoint_path: ./models/thumos14/opental_final/split_{id:d}/
   random_seed: 2020
 
 testing:
@@ -58,6 +58,6 @@ testing:
   top_k: 5000
   nms_thresh: 0.5
   nms_sigma: 0.5
-  checkpoint_path: ./models/thumos14/opental_norank/split_{id:d}/checkpoint-latest.ckpt
-  output_path: ./output/opental_norank/split_{id:d}
+  checkpoint_path: ./models/thumos14/opental_final/split_{id:d}/checkpoint-latest.ckpt
+  output_path: ./output/opental_final/split_{id:d}
   output_json: detection_results.json
