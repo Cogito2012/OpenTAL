@@ -14,9 +14,7 @@ echo "Train the RGB model on ActivityNet1.3 Closed Set:"
 CUDA_VISIBLE_DEVICES=${GPU_ID} python AFSD/anet/train.py \
     configs/anet_softmax.yaml \
     --lw=1 \
-    --cw=10 \
-    --ctw=1 \
-    --ssl=0.001 \
+    --cw=1 \
     --piou=0.6 \
     --open_set \
     --split=${SPLIT}

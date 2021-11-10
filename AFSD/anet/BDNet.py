@@ -9,7 +9,7 @@ from AFSD.common.config import config
 from AFSD.common.layers import Unit1D, Unit3D
 from AFSD.prop_pooling.boundary_pooling_op import BoundaryMaxPooling
 
-num_classes = 2
+num_classes = config['dataset']['num_classes']
 freeze_bn = config['model']['freeze_bn']
 freeze_bn_affine = config['model']['freeze_bn_affine']
 evidence = config['model']['evidence'] if 'evidence' in config['model'] else 'exp'
