@@ -83,6 +83,56 @@ def wrapper_segment_iou(target_segments, candidate_segments):
     return tiou
 
 
+def open_set_detection_rate(preds, pred_cls, gt_cls):
+    """ preds: ndarray, (N,), [0, 1]
+        pred_cls: ndarray, (N,), 0: unknown, >0: known
+        gt_cls: ndarray, (N,), 0: unknown, >0: known
+    """
+    
+    x1, x2 = preds[gt_cls > 0], preds[gt_cls == 0]  # known preds & unknown preds
+    m_x1 = np.zeros(len(x1))
+    m_x1[pred_cls[gt_cls > 0] == gt_cls[gt_cls > 0]] = 1  # for known preds, fraction of correct cls
+    k_target = np.concatenate((m_x1, np.zeros(len(x2))), axis=0)  # target of correct known (in all preds)
+    u_target = np.concatenate((np.zeros(len(x1)), np.ones(len(x2))), axis=0)  # target of all unknown (in all preds)
+    predict = np.concatenate((x1, x2), axis=0)  # re-organize pred score
+    n = len(preds)
+
+    # Cutoffs are of prediction values
+    CCR = [0 for x in range(n+2)]
+    FPR = [0 for x in range(n+2)]
+
+    # sort the targets by ascending order of predictions
+    idx = predict.argsort()
+    s_k_target = k_target[idx]
+    s_u_target = u_target[idx]
+
+    # for each cut-off score
+    for k in range(n-1):
+        # accumulated sum
+        CC = s_k_target[k+1:].sum()
+        FP = s_u_target[k:].sum()
+        # True	Positive Rate
+        CCR[k] = float(CC) / float(len(x1))  # fraction of correct classification in known preds
+        # False Positive Rate
+        FPR[k] = float(FP) / float(len(x2))  # fraction of unknown preds that are classified as any known
+    
+    # extreme cases
+    CCR[n] = 0.0
+    FPR[n] = 0.0
+    CCR[n+1] = 1.0
+    FPR[n+1] = 1.0
+
+    # Positions of ROC curve (FPR, TPR)
+    ROC = sorted(zip(FPR, CCR), reverse=True)  # descending order by FPR
+    OSCR = 0
+    # Compute AUROC Using Trapezoidal Rule
+    for j in range(n+1):
+        w =   ROC[j][0] - ROC[j+1][0]  # delta_FPR
+        h =  (ROC[j][1] + ROC[j+1][1]) / 2.0  # mean_CCR
+        OSCR = OSCR + h*w  # area under the curve
+    return OSCR, FPR, CCR
+
+
 def save_curve_data(roc_data, pr_data, save_path, vis=False, fontsize=18):
     os.makedirs(save_path, exist_ok=True)
     # save roc data
@@ -117,4 +167,26 @@ def save_curve_data(roc_data, pr_data, save_path, vis=False, fontsize=18):
         plt.legend(fontsize=fontsize)
         plt.tight_layout()
         plt.savefig(os.path.join(save_path, 'AUC_PR.png'))
+        plt.close()
+
+
+def save_curve_osdr_data(osdr_data, save_path, vis=False, fontsize=18):
+    os.makedirs(save_path, exist_ok=True)
+    # save roc data
+    with open(os.path.join(save_path, 'osdr_data.pkl'), 'wb') as f:
+        pickle.dump(osdr_data, f, pickle.HIGHEST_PROTOCOL)
+    # draw curves
+    if vis:
+        line_styles = ['r-', 'c-', 'g-', 'b-', 'k']
+        # plot roc curve
+        plt.figure(figsize=(8, 5))
+        for tidx, (fpr, cdr, osdr, tiou) in enumerate(zip(osdr_data['fpr'], osdr_data['cdr'], osdr_data['osdr'], osdr_data['tiou'])):
+            plt.plot(fpr, cdr, line_styles[tidx], label=f'tIoU={tiou}, auc={osdr*100:.2f}%')
+        plt.xlabel('False Positive Rate', fontsize=fontsize)
+        plt.ylabel('Correct Detection Rate', fontsize=fontsize)
+        plt.xticks(fontsize=fontsize)
+        plt.yticks(fontsize=fontsize)
+        plt.legend(fontsize=fontsize)
+        plt.tight_layout()
+        plt.savefig(os.path.join(save_path, 'AUC_OSDR.png'))
         plt.close()

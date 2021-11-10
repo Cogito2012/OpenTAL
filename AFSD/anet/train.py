@@ -16,7 +16,7 @@ batch_size = config['training']['batch_size']
 learning_rate = config['training']['learning_rate']
 weight_decay = config['training']['weight_decay']
 max_epoch = config['training']['max_epoch']
-num_classes = 2
+num_classes = config['dataset']['num_classes']
 checkpoint_path = config['training']['checkpoint_path']
 focal_loss = config['training']['focal_loss']
 edl_loss = config['training']['edl_loss'] if 'edl_loss' in config['training'] else False
@@ -320,13 +320,14 @@ if __name__ == '__main__':
     """
     Setup dataloader
     """
+    binary_class = True if num_classes == 2 else False
     train_dataset = ANET_Dataset(config['dataset']['training']['video_info_path'],
                                  config['dataset']['training']['video_mp4_path'],
                                  config['dataset']['training']['clip_length'],
                                  config['dataset']['training']['crop_size'],
                                  config['dataset']['training']['clip_stride'],
                                  channels=config['model']['in_channels'],
-                                 binary_class=True)
+                                 binary_class=binary_class)
     train_data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True,
                                    num_workers=8, worker_init_fn=worker_init_fn,
                                    collate_fn=detection_collate, pin_memory=True, drop_last=True)

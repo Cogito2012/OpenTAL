@@ -14,6 +14,7 @@ from .utils_eval import get_blocked_videos
 from .utils_eval import interpolated_prec_rec
 from .utils_eval import segment_iou
 from .utils_eval import save_curve_data
+from .utils_eval import open_set_detection_rate, save_curve_osdr_data
 from sklearn.metrics import average_precision_score, roc_auc_score, roc_curve, precision_recall_curve
 
 import warnings
@@ -248,13 +249,23 @@ class ANETdetection(object):
         return ap
 
     def wrapper_compute_auc_scores(self):
-        unique_videos = list(set(self.video_lst))
-        au_roc, au_pr, _, _ = compute_auc_scores(self.ground_truth, self.prediction, unique_videos, tiou_thresholds=self.tiou_thresholds)
+        pred_scores, pred_labels, gt_labels = self.eval_data
+        au_roc, au_pr, _, _ = compute_auc_scores(pred_scores, gt_labels, tiou_thresholds=self.tiou_thresholds)
         if self.draw_auc:
-            _, _, roc_data, pr_data = compute_auc_scores(self.ground_truth, self.prediction, unique_videos, tiou_thresholds=[0.3, 0.4, 0.5], vis=True)
+            pred_scores, pred_labels, gt_labels = self.draw_data
+            _, _, roc_data, pr_data = compute_auc_scores(pred_scores, gt_labels, tiou_thresholds=[0.3, 0.4, 0.5], vis=True)
             save_curve_data(roc_data, pr_data, self.curve_data_path, vis=True)
         return au_roc, au_pr
 
+    
+    def wrapper_compute_osdr_scores(self):
+        pred_scores, pred_labels, gt_labels = self.eval_data
+        osdr, _ = compute_osdr_scores(pred_scores, pred_labels, gt_labels, tiou_thresholds=self.tiou_thresholds)
+        if self.draw_auc:
+            pred_scores, pred_labels, gt_labels = self.draw_data
+            _, osdr_data = compute_osdr_scores(pred_scores, pred_labels, gt_labels, tiou_thresholds=[0.3, 0.4, 0.5], vis=True)
+            save_curve_osdr_data(osdr_data, self.curve_data_path, vis=True)
+        return osdr
 
 
     def wrapper_compute_wilderness_impact(self):
@@ -270,11 +281,20 @@ class ANETdetection(object):
         return wi
 
 
+    def pre_evaluate(self):
+        unique_videos = list(set(self.video_lst))
+        print('For evaluating AUC curves...')
+        self.eval_data = split_results_by_gt(self.prediction, self.ground_truth, unique_videos, tiou_thresholds=self.tiou_thresholds)
+        if self.draw_auc:
+            print('For drawing AUC curves...')
+            self.draw_data = split_results_by_gt(self.prediction, self.ground_truth, unique_videos, tiou_thresholds=[0.3, 0.4, 0.5])
+
+
     def evaluate(self, type='AP'):
         """Evaluates a prediction file. For the detection task we measure the
         interpolated mean average precision to measure the performance of a
         method.
-        """
+        """ 
         if type == 'AP':
             self.ap = self.wrapper_compute_average_precision()
             self.mAP = self.ap.mean(axis=1)
@@ -283,6 +303,9 @@ class ANETdetection(object):
         elif type == 'AUC':
             self.au_roc, self.au_pr = self.wrapper_compute_auc_scores()
             return self.au_roc, self.au_pr
+        elif type == 'OSDR':
+            self.osdr = self.wrapper_compute_osdr_scores()
+            return self.osdr
         elif type == 'WI':
             assert self.openset, 'Wilderness Impact Cannot be Evaluated for Closed Set!'
             self.wi = self.wrapper_compute_wilderness_impact()
@@ -375,8 +398,8 @@ def compute_average_precision_detection(ground_truth, prediction, tiou_threshold
     return ap
 
 
-def compute_auc_scores(ground_truth_all, prediction_all, video_list, tiou_thresholds=np.linspace(0.5, 0.95, 10), vis=False):
-    """ Compute the Area Under the Curves (ROC and PR)
+def split_results_by_gt(prediction_all, ground_truth_all, video_list, tiou_thresholds=np.linspace(0.5, 0.95, 10)):
+    """ Split predictions into background, known, and unknown actions by ground-truth
     """
     ground_truth_by_vid = ground_truth_all.groupby('video-id')
     prediction_by_vid = prediction_all.groupby('video-id')
@@ -392,7 +415,8 @@ def compute_auc_scores(ground_truth_all, prediction_all, video_list, tiou_thresh
 
     # for each pred label, find the ground truth label
     pred_scores = [{'bg': [], 'known': [], 'unknown': []} for _ in tiou_thresholds]
-    gt_scores = [{'bg': [], 'known': [], 'unknown': []} for _ in tiou_thresholds]
+    pred_labels = [{'bg': [], 'known': [], 'unknown': []} for _ in tiou_thresholds]
+    gt_labels = [{'bg': [], 'known': [], 'unknown': []} for _ in tiou_thresholds]
     for video_name in tqdm(video_list, total=len(video_list), desc='Compute AUC'):
         ground_truth = ground_truth_by_vid.get_group(video_name).reset_index()
         prediction = _get_predictions_with_vid(prediction_by_vid, video_name)
@@ -400,27 +424,37 @@ def compute_auc_scores(ground_truth_all, prediction_all, video_list, tiou_thresh
             continue
         lock_gt = np.ones((len(ground_truth))) * -1
         for idx, this_pred in prediction.iterrows():
-            score = this_pred['ood_score']
+            ood_score = this_pred['ood_score']  # high value indicates known class
+            label_pred = this_pred['label']  # 0: unknown, >0: known
             tiou_arr = segment_iou(this_pred[['t-start', 't-end']].values,
                                    ground_truth[['t-start', 't-end']].values)
             tiou_sorted_idx = tiou_arr.argsort()[::-1]  # tIoU in a decreasing order
             for tidx, tiou_thr in enumerate(tiou_thresholds):
                 for jdx in tiou_sorted_idx:
                     if tiou_arr[jdx] < tiou_thr:  # background segment
-                        pred_scores[tidx]['bg'].append(score)
-                        gt_scores[tidx]['bg'].append(1.0)  # high uncertainty and low actionness (1-u*a)
+                        pred_scores[tidx]['bg'].append(ood_score)
+                        pred_labels[tidx]['bg'].append(label_pred)
+                        gt_labels[tidx]['bg'].append(-1.0)  # -1: bg
                         break
                     if lock_gt[jdx] >= 0:
                         continue  # this gt was matched before, continue to select the second largest tIoU match
                     label_gt = int(ground_truth.loc[jdx]['label'])
                     if label_gt == 0: # unknown foreground
-                        pred_scores[tidx]['unknown'].append(score)
-                        gt_scores[tidx]['unknown'].append(0.0)
+                        pred_scores[tidx]['unknown'].append(ood_score)
+                        pred_labels[tidx]['unknown'].append(label_pred)
+                        gt_labels[tidx]['unknown'].append(label_gt)  # 0: unknown
                     else:  # known foreground
-                        pred_scores[tidx]['known'].append(score)
-                        gt_scores[tidx]['known'].append(1.0)
+                        pred_scores[tidx]['known'].append(ood_score)
+                        pred_labels[tidx]['known'].append(label_pred)
+                        gt_labels[tidx]['known'].append(label_gt)  # >0: known
                     lock_gt[jdx] = idx
                     break
+    return pred_scores, pred_labels, gt_labels
+
+
+def compute_auc_scores(pred_scores, gt_labels, tiou_thresholds=np.linspace(0.5, 0.95, 10), vis=False):
+    """ Compute the Area Under the Curves (ROC and PR)
+    """
     # compute the AUC of PR and ROC curves between known and unknown
     auc_pr = np.zeros((len(tiou_thresholds),), dtype=np.float32)
     auc_roc = np.zeros((len(tiou_thresholds),), dtype=np.float32)
@@ -428,7 +462,8 @@ def compute_auc_scores(ground_truth_all, prediction_all, video_list, tiou_thresh
     pr_data = {'recall': [], 'precision': [], 'auc': [], 'tiou': []} if vis else None
     for tidx, tiou in enumerate(tiou_thresholds):
         preds = pred_scores[tidx]['known'] + pred_scores[tidx]['unknown']
-        labels = gt_scores[tidx]['known'] + gt_scores[tidx]['unknown']
+        labels_cls = gt_labels[tidx]['known'] + gt_labels[tidx]['unknown']
+        labels = np.array(labels_cls).astype(bool).astype(int).tolist()
         if len(preds) > 0 and len(labels) > 0:
             auc_pr[tidx] = average_precision_score(labels, preds)  # note that this is interpolated approximation of precision_recall_curve() + auc()
             auc_roc[tidx] = roc_auc_score(labels, preds) if len(list(set(labels))) > 1 else 0  # at least there should be two classes
@@ -446,6 +481,26 @@ def compute_auc_scores(ground_truth_all, prediction_all, video_list, tiou_thresh
                 pr_data['auc'].append(auc_pr[tidx])
                 pr_data['tiou'].append(tiou)
     return auc_roc, auc_pr, roc_data, pr_data
+
+
+
+def compute_osdr_scores(pred_scores, pred_labels, gt_labels, tiou_thresholds=np.linspace(0.5, 0.95, 10), vis=False):
+    """ Compute the Area Under the CDR-FPR Curve
+    """
+    osdr = np.zeros((len(tiou_thresholds),), dtype=np.float32)
+    osdr_data = {'fpr': [], 'cdr': [], 'osdr': [], 'tiou': []} if vis else None
+    for tidx, tiou in enumerate(tiou_thresholds):
+        preds = pred_scores[tidx]['known'] + pred_scores[tidx]['unknown']  # float values ranging from 0-1
+        pred_cls = pred_labels[tidx]['known'] + pred_labels[tidx]['unknown']  # integer values ranging from 0-K
+        gt_cls = gt_labels[tidx]['known'] + gt_labels[tidx]['unknown']  # integer values ranging from 0-K
+        if len(preds) > 0:
+            osdr[tidx], fpr, cdr = open_set_detection_rate(np.array(preds), np.array(pred_cls), np.array(gt_cls))
+            if vis:
+                osdr_data['fpr'].append(fpr)
+                osdr_data['cdr'].append(cdr)
+                osdr_data['osdr'].append(osdr[tidx])
+                osdr_data['tiou'].append(tiou)
+    return osdr, osdr_data
 
 
 def compute_wilderness_impact1(ground_truth_all, prediction_all, video_list, known_classes, tiou_thresholds=np.linspace(0.5, 0.95, 10)):

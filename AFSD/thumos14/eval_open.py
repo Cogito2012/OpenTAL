@@ -31,6 +31,7 @@ def read_threshold(trainset_result):
 mAPs_all, average_mAP_all = [], []
 aucROCs_all, average_aucROC_all = [], []
 aucPRs_all, average_aucPR_all = [], []
+OSDR_all, average_OSDR_all = [], []
 for split in args.all_splits:
     # GT file and Pred file
     gt_file = args.gt_json if args.open_set else args.gt_json.format(id=split)
@@ -60,8 +61,11 @@ for split in args.all_splits:
     # run evaluation
     mAPs, average_mAP, ap = anet_detection.evaluate(type='AP')
     if args.open_set:
+        anet_detection.pre_evaluate()
         # evaluate AUC of ROC and PR
         auc_ROC, auc_PR = anet_detection.evaluate(type='AUC')
+        # evaluate auc of OSDR
+        OSDR = anet_detection.evaluate(type='OSDR')
         # # evaluate the Wilderness Impact
         # mWIs, average_mWI, wi = anet_detection.evaluate(type='WI')
         # with open(os.path.join(os.path.dirname(pred_file), 'open_stats.pkl'), 'wb') as f:
@@ -75,9 +79,9 @@ for split in args.all_splits:
         f.writelines(f"Average mAP: {average_mAP:.5f}\n")
         if args.open_set:
             f.writelines('\n')
-            for (tiou, auc_roc, auc_pr) in zip(tious, auc_ROC, auc_PR):
-                f.writelines(f"tIoU={tiou}: auc_roc={auc_roc:.5f}, auc_pr={auc_pr:.5f}\n")
-            f.writelines(f"Average AUC_ROC: {auc_ROC.mean():.5f}, Average AUC_PR: {auc_PR.mean():.5f}\n")
+            for (tiou, auc_roc, auc_pr, osdr) in zip(tious, auc_ROC, auc_PR, OSDR):
+                f.writelines(f"tIoU={tiou}: auc_roc={auc_roc:.5f}, auc_pr={auc_pr:.5f}, osdr={osdr:.5f}\n")
+            f.writelines(f"Average AUC_ROC: {auc_ROC.mean():.5f}, Average AUC_PR: {auc_PR.mean():.5f}, Average OSDR: {OSDR.mean():.5f}\n")
     
     mAPs_all.append(mAPs)
     average_mAP_all.append(average_mAP)
@@ -86,6 +90,8 @@ for split in args.all_splits:
         average_aucROC_all.append(auc_ROC.mean())
         aucPRs_all.append(auc_PR)
         average_aucPR_all.append(auc_PR.mean())
+        OSDR_all.append(OSDR)
+        average_OSDR_all.append(OSDR.mean())
 
 def get_mean_std(data, axis=0):
     mean = np.array(data).mean(axis=axis)
@@ -107,6 +113,9 @@ if args.open_set:
     # print the averaged results of auc_ROC
     aucPRs_mean, aucPRs_std = get_mean_std(aucPRs_all, axis=0)
     average_aucPR_mean, average_aucPR_std = get_mean_std(average_aucPR_all, axis=0)
+    # print the averaged results of OSDR
+    osdr_mean, osdr_std = get_mean_std(OSDR_all, axis=0)
+    average_OSDR_mean, average_OSDR_std = get_mean_std(average_OSDR_all, axis=0)
 
     for (tiou, mean, std) in zip(tious, aucROCs_mean, aucROCs_std):
         print(f"AUC_ROC(tIoU={tiou}): mean={mean:.5f}, std={std:.5f}")
@@ -115,3 +124,7 @@ if args.open_set:
     for (tiou, mean, std) in zip(tious, aucPRs_mean, aucPRs_std):
         print(f"AUC_PR(tIoU={tiou}): mean={mean:.5f}, std={std:.5f}")
     print(f"Average AUC_PR = {average_aucPR_mean:.5f} ({average_aucPR_std:.5f})\n")
+
+    for (tiou, mean, std) in zip(tious, osdr_mean, osdr_std):
+        print(f"OSDR(tIoU={tiou}): mean={mean:.5f}, std={std:.5f}")
+    print(f"Average OSDR = {average_OSDR_mean:.5f} ({average_OSDR_std:.5f})\n")
