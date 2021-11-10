@@ -24,7 +24,6 @@ model:
   freeze_bn_affine: true
   use_edl: true
   evidence: exp
-  os_head: true
   backbone_model: models/i3d_models/rgb_imagenet.pt
 
 training:
@@ -37,12 +36,7 @@ training:
   edl_config:
     evidence: exp
     loss_type: log
-    iou_aware: true
-    with_ibm: true
-    ibm_start: 10
-    momentum: 0.99
-    num_bins: 50
-  checkpoint_path: models/anet/opental/split_{id:d}/
+  checkpoint_path: models/anet/edl/split_{id:d}/
   random_seed: 2020
 
 testing:
@@ -50,6 +44,6 @@ testing:
   top_k: 5000
   nms_thresh: 0.5
   nms_sigma: 0.85
-  checkpoint_path: models/anet/opental/split_{id:d}/checkpoint-latest.ckpt
-  output_path: output/anet/opental/split_{id:d}
+  checkpoint_path: models/anet/edl/split_{id:d}/checkpoint-latest.ckpt
+  output_path: output/anet/edl/split_{id:d}
   output_json: detection_results.json
