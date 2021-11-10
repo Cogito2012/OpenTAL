@@ -239,8 +239,8 @@ class MultiSegmentLoss(nn.Module):
 
             if self.os_head:
                 act_scores = act_p.view(-1, 1)  # [N, 1]
-                targets = inds_keep.to(torch.float32)  # [N, 1]
-                loss_act, AN = self.act_loss(act_scores, targets)
+                act_targets = inds_keep.to(torch.float32)  # [N, 1]
+                loss_act, AN = self.act_loss(act_scores, act_targets)
 
             # classification loss in the refined stage
             prop_conf_p = prop_logit_p.view(-1, num_classes)
@@ -262,8 +262,8 @@ class MultiSegmentLoss(nn.Module):
 
             if self.os_head:
                 prop_act_scores = prop_act_p.view(-1, 1)  # [N, 1]
-                targets = inds_keep.to(torch.float32)  # [N, 1]
-                loss_prop_act, PAN = self.act_loss(prop_act_scores, targets)
+                prop_act_targets = inds_keep.to(torch.float32)  # [N, 1]
+                loss_prop_act, PAN = self.act_loss(prop_act_scores, prop_act_targets)
 
             N = max(pos.sum(), 1)
             PN = max(prop_pos.sum(), 1)
