@@ -13,7 +13,6 @@ OOD_SCORING="uncertainty_actionness"
 
 MODEL_OUTPUT=output/${EXP_TAG}/split_{id:d}/thumos14_open_rgb.json
 CLS_IDX_KNOWN=datasets/thumos14/annotations_open/split_{id:d}/Class_Index_Known.txt
-TRAINSET_RESULT=output/${EXP_TAG}/split_{id:d}/thumos14_open_trainset.json
 
 echo -e "\nClosed Set Evaluation (15 Classes)"
 python AFSD/thumos14/eval_open.py \
@@ -30,7 +29,6 @@ python AFSD/thumos14/eval_open.py \
     --cls_idx_known ${CLS_IDX_KNOWN} \
     --open_set \
     --draw_auc \
-    --trainset_result ${TRAINSET_RESULT} \
     --all_splits ${ALL_SPLITS} \
     --ood_scoring ${OOD_SCORING}
 

@@ -85,7 +85,7 @@ def wrapper_segment_iou(target_segments, candidate_segments):
 
 def open_set_detection_rate(preds, pred_cls, gt_cls):
     """ preds: ndarray, (N,), [0, 1]
-        pred_cls: ndarray, (N,), 0: unknown, >0: known
+        pred_cls: ndarray, (N,), >0: known
         gt_cls: ndarray, (N,), 0: unknown, >0: known
     """
     
@@ -181,7 +181,7 @@ def save_curve_osdr_data(osdr_data, save_path, vis=False, fontsize=18):
         # plot roc curve
         plt.figure(figsize=(8, 5))
         for tidx, (fpr, cdr, osdr, tiou) in enumerate(zip(osdr_data['fpr'], osdr_data['cdr'], osdr_data['osdr'], osdr_data['tiou'])):
-            plt.plot(fpr, cdr, line_styles[tidx], label=f'tIoU={tiou}, auc={osdr*100:.2f}%')
+            plt.plot(fpr[:-2], cdr[:-2], line_styles[tidx], label=f'tIoU={tiou}, auc={osdr*100:.2f}%')
         plt.xlabel('False Positive Rate', fontsize=fontsize)
         plt.ylabel('Correct Detection Rate', fontsize=fontsize)
         plt.xticks(fontsize=fontsize)

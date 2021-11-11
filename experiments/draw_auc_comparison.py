@@ -3,18 +3,32 @@ import os
 import pickle
 
 
-if __name__ == '__main__':
+def draw_OSDR_curve(split):
+    plt.figure(figsize=(6, 5))
+    plt.rcParams["font.family"] = "Arial"
+    for idx, (folder, label) in enumerate(zip(result_folders, labels)):
+        # load result file
+        result_file = os.path.join('output', folder, f'split_{split}', 'auc_data', 'osdr_data.pkl')
+        with open(result_file, 'rb') as f:
+            osdr_data = pickle.load(f)
+        # draw curves
+        for tidx, (fpr, cdr, osdr, tiou) in enumerate(zip(osdr_data['fpr'], osdr_data['cdr'], osdr_data['osdr'], osdr_data['tiou'])):
+            if tiou == tiou_target:
+                plt.plot(fpr[:-2], cdr[:-2], line_styles[idx], label=f'{label} ({osdr*100:.2f})')
+    plt.xlabel('False Positive Rate', fontsize=fontsize)
+    plt.ylabel('Correct Detection Rate', fontsize=fontsize)
+    plt.xlim(0, 1)
+    plt.ylim(0, 0.55)
+    plt.xticks(fontsize=fontsize)
+    plt.yticks(fontsize=fontsize)
+    plt.legend(fontsize=fontsize, loc='lower right')
+    plt.tight_layout()
+    plt.savefig(os.path.join(fig_path, f'OSDR_split{split}.png'))
+    plt.savefig(os.path.join(fig_path, f'OSDR_split{split}.pdf'))
+    plt.close()
 
-    labels = ['OpenTAL', 'EDL', 'SoftMax']
-    result_folders = ['edl_oshead_iou', 'edl_15kc', 'default']
-    split = '0'
-    tiou_target = 0.3
-    line_styles = ['r-', 'g-', 'b-']
-    fontsize = 18
-    fig_path = 'experiments/figs'
-    os.makedirs(fig_path, exist_ok=True)
 
-    # draw ROC Curve
+def draw_ROC_curve(split):
     plt.figure(figsize=(6, 5))
     plt.rcParams["font.family"] = "Arial"
     for idx, (folder, label) in enumerate(zip(result_folders, labels)):
@@ -32,13 +46,14 @@ if __name__ == '__main__':
     plt.ylim(0, 1)
     plt.xticks(fontsize=fontsize)
     plt.yticks(fontsize=fontsize)
-    plt.legend(fontsize=fontsize)
+    plt.legend(fontsize=fontsize, loc='lower right')
     plt.tight_layout()
-    plt.savefig(os.path.join(fig_path, 'AUC_ROC_compare.png'))
-    plt.savefig(os.path.join(fig_path, 'AUC_ROC_compare.pdf'))
+    plt.savefig(os.path.join(fig_path, f'AUC_ROC_split{split}.png'))
+    plt.savefig(os.path.join(fig_path, f'AUC_ROC_split{split}.pdf'))
     plt.close()
 
-    # draw PR Curve
+
+def draw_PR_curve():
     plt.figure(figsize=(6, 5))
     plt.rcParams["font.family"] = "Arial"
     for idx, (folder, label) in enumerate(zip(result_folders, labels)):
@@ -60,6 +75,29 @@ if __name__ == '__main__':
     plt.tight_layout()
     plt.savefig(os.path.join(fig_path, 'AUC_PR_compare.png'))
     plt.close()
+
+
+if __name__ == '__main__':
+
+    labels = ['OpenTAL', 'EDL', 'SoftMax']
+    result_folders = ['opental_final', 'open_edl', 'softmax']
+    # split = '2'
+    tiou_target = 0.3
+    line_styles = ['r-', 'g-', 'b-']
+    fontsize = 18
+    fig_path = 'experiments/figs'
+    os.makedirs(fig_path, exist_ok=True)
+
+    # draw ROC Curve
+    for split in ['0', '1', '2']:
+        draw_ROC_curve(split)
+
+    # # draw PR Curve
+    # draw_PR_curve()
+
+    # draw OSDR Curve
+    for split in ['0', '1', '2']:
+        draw_OSDR_curve(split)
 
     plt.figure(figsize=(10, 4))
     plt.rcParams["font.family"] = "Arial"

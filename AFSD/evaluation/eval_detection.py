@@ -32,7 +32,7 @@ class ANETdetection(object):
                  ground_truth_fields=GROUND_TRUTH_FIELDS,
                  prediction_fields=PREDICTION_FIELDS,
                  tiou_thresholds=np.linspace(0.5, 0.95, 10),
-                 ood_threshold=1.0, 
+                 ood_threshold=None, 
                  ood_scoring='confidence',
                  subset='validation', 
                  openset=False,
@@ -196,7 +196,7 @@ class ANETdetection(object):
                     uncertainty_lst.append(result['uncertainty'])
                     actness_lst.append(result['actionness'])
                 ood_score_lst.append(res_score)
-                if self.openset and res_score < self.ood_threshold:
+                if self.openset and self.ood_threshold is not None and res_score < self.ood_threshold:
                     label = self.activity_index['__unknown__']  # reject the unknown
                 else:
                     label = self.activity_index[result['label']]
@@ -433,7 +433,7 @@ def split_results_by_gt(prediction_all, ground_truth_all, video_list, tiou_thres
         lock_gt = np.ones((len(ground_truth))) * -1
         for idx, this_pred in prediction.iterrows():
             ood_score = this_pred['ood_score']  # high value indicates known class
-            label_pred = this_pred['label']  # 0: unknown, >0: known
+            label_pred = this_pred['label']  # all predicted classes are known classes without using threshold here!
             tiou_arr = segment_iou(this_pred[['t-start', 't-end']].values,
                                    ground_truth[['t-start', 't-end']].values)
             tiou_sorted_idx = tiou_arr.argsort()[::-1]  # tIoU in a decreasing order
@@ -499,7 +499,7 @@ def compute_osdr_scores(pred_scores, pred_labels, gt_labels, tiou_thresholds=np.
     osdr_data = {'fpr': [], 'cdr': [], 'osdr': [], 'tiou': []} if vis else None
     for tidx, tiou in enumerate(tiou_thresholds):
         preds = pred_scores[tidx]['known'] + pred_scores[tidx]['unknown']  # float values ranging from 0-1
-        pred_cls = pred_labels[tidx]['known'] + pred_labels[tidx]['unknown']  # integer values ranging from 0-K
+        pred_cls = pred_labels[tidx]['known'] + pred_labels[tidx]['unknown']  # integer values ranging from 1-K
         gt_cls = gt_labels[tidx]['known'] + gt_labels[tidx]['unknown']  # integer values ranging from 0-K
         if len(preds) > 0:
             osdr[tidx], fpr, cdr = open_set_detection_rate(np.array(preds), np.array(pred_cls), np.array(gt_cls))
