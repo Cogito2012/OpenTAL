@@ -188,7 +188,7 @@ class ANETdetection(object):
                     uncertainty_lst.append(result['uncertainty'])
                     actness_lst.append(result['actionness'])
                 elif self.ood_scoring == 'a_by_inv_u':
-                    res_score = 1 - result['actionness'] / (1 - result['uncertainty'])
+                    res_score = 1 - result['actionness'] / (1 - result['uncertainty'] + 1e-6)
                     uncertainty_lst.append(result['uncertainty'])
                     actness_lst.append(result['actionness'])
                 elif self.ood_scoring == 'u_by_inv_a':
