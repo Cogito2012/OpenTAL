@@ -228,7 +228,6 @@ class EvidenceLoss(nn.Module):
         elif self.with_ghm and self.epoch >= self.ghm_start:
             alpha_pred = alpha.detach().clone()  # (N, K)
             uncertainty = self.num_cls / alpha_pred.sum(dim=-1, keepdim=True)  # (N, 1)
-            # weights = torch.pow(1 / alpha_pred - uncertainty, 2)
             # gradient length
             grad_norm = torch.abs(1 / alpha_pred - uncertainty) * y  # y_ij * (1/alpha_ij - u_i)
             n = 0  # n valid bins
@@ -248,7 +247,7 @@ class EvidenceLoss(nn.Module):
                 weights = weights / n
             # compute the weighted EDL loss
             cls_loss = torch.sum(y * weights * (func(S) - func(alpha)), dim=1)
-        elif self.with_ibloss and self.epoch > self.ib_start:
+        elif self.with_ibloss and self.epoch >= self.ib_start:
             alpha_pred = alpha.detach().clone()  # (N, K)
             uncertainty = self.num_cls / alpha_pred.sum(dim=-1, keepdim=True)  # (N, 1)
             grad_norm = torch.sum(torch.abs(1 / alpha_pred - uncertainty) * y, dim=1)  # sum_j|y_ij * (1/alpha_ij - u_i)|, (N)
