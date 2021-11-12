@@ -84,7 +84,7 @@ class EvidenceLoss(nn.Module):
         self.num_cls = num_cls
         self.loss_type = cfg['loss_type']
         self.evidence = cfg['evidence']
-        self.with_focal = cfg['with_focal']
+        self.with_focal = cfg['with_focal'] if 'with_focal' in cfg else False
         self.soft_label = cfg['soft_label'] if 'soft_label' in cfg else 0.0
         self.iou_aware = cfg['iou_aware'] if 'iou_aware' in cfg else False
         self.with_ghm = cfg['with_ghm'] if 'with_ghm' in cfg else False

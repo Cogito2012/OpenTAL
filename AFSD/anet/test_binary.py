@@ -17,7 +17,7 @@ import threading
 
 def get_basic_config(config, dataset='testing'):
     class cfg: pass
-    cfg.num_classes = config['dataset']['num_classes']
+    cfg.num_classes = 2
     cfg.conf_thresh = config['testing']['conf_thresh']
     cfg.top_k = config['testing']['top_k']
     cfg.nms_thresh = config['testing']['nms_thresh']
@@ -44,19 +44,10 @@ def get_basic_config(config, dataset='testing'):
     cfg.thread_num = config['ngpu']
 
     subset = 'validation' if dataset == 'testing' else 'training'
-    cfg.idx_to_class = get_class_names(config['dataset']['class_info_path'])
     cfg.video_infos = get_video_info(config['dataset'][dataset]['video_info_path'], subset=subset)
     cfg.mp4_data_path = config['dataset'][dataset]['video_mp4_path']  # train_val_npy_112/
 
     return cfg
-
-
-def get_class_names(class_info_path):
-    idx_to_class = {}
-    with open(class_info_path, 'r') as f:
-        for idx, line in enumerate(f.readlines()):
-            idx_to_class[idx + 1] = line.strip()    # starting from 1 to K (K=150 for activitynet)
-    return idx_to_class
 
 
 def get_path(input_path):
@@ -133,8 +124,6 @@ def decode_prediction(output_dict, cfg, score_func=nn.Softmax(dim=-1)):
 
 def filtering(decoded_segments, conf_score_cls, uncertainty, actionness, offset, sample_fps, cfg, conf_thresh=1e-9):
     c_mask = conf_score_cls > conf_thresh
-    if cfg.os_head:
-        c_mask = c_mask & (actionness > 0.5)
     scores = conf_score_cls[c_mask]
     if scores.size(0) == 0:
         return None
@@ -153,7 +142,7 @@ def filtering(decoded_segments, conf_score_cls, uncertainty, actionness, offset,
     return segments
 
 
-def get_video_prediction(output, duration, cfg, cls_rng=None):
+def get_video_prediction(output, pred_class, pred_conf, duration, cfg, cls_rng=None):
     res_dim = 3
     res_dim = res_dim + 1 if cfg.use_edl else res_dim  # 3 or 4
     res_dim = res_dim + 1 if cfg.os_head else res_dim  # 3 or 4 or 5
@@ -171,7 +160,7 @@ def get_video_prediction(output, duration, cfg, cls_rng=None):
     proposal_list = []
     for cl in cls_rng:
         cl_idx = cl + 1 if cfg.os_head else cl
-        class_name = cfg.idx_to_class[cl_idx]  # assume the current video contains only one class
+        class_name = pred_class  # assume the current video contains only one class
         tmp = flt[cl].contiguous()
         tmp = tmp[(tmp[:, 2] > 0).unsqueeze(-1).expand_as(tmp)].view(-1, res_dim)
         if tmp.size(0) == 0:
@@ -184,7 +173,7 @@ def get_video_prediction(output, duration, cfg, cls_rng=None):
             if end_time <= start_time:
                 continue
             tmp_proposal['label'] = class_name
-            tmp_proposal['score'] = float(tmp[i, 2])
+            tmp_proposal['score'] = float(tmp[i, 2]) * pred_conf
             tmp_proposal['segment'] = [start_time, end_time]
             tmp_proposal['uncertainty'] = float(tmp[i, 3]) if cfg.use_edl else 0.0
             tmp_proposal['actionness'] = float(tmp[i, 4]) if cfg.os_head else 0.0
@@ -192,7 +181,7 @@ def get_video_prediction(output, duration, cfg, cls_rng=None):
     return proposal_list
 
 
-def inference_thread(lock, pid, video_list, cfg, result_dict):
+def inference_thread(lock, pid, video_list, cls_data, cfg, result_dict):
 
     torch.cuda.set_device(pid)
     net = BDNet(in_channels=cfg.input_channels,
@@ -202,6 +191,9 @@ def inference_thread(lock, pid, video_list, cfg, result_dict):
 
     out_layer = DirichletLayer(evidence=cfg.evidence, dim=-1) if cfg.use_edl else nn.Softmax(dim=-1)
     center_crop = videotransforms.CenterCrop(cfg.crop_size)
+
+    cls_scores = cls_data["results"]  # (N, 200)
+    cls_actions = cls_data["class"]  # idx_to_class (200)
     class_range = range(1, cfg.num_classes) if not cfg.os_head else range(0, cfg.num_classes)
 
     text = 'processor %d' % pid
@@ -213,6 +205,10 @@ def inference_thread(lock, pid, video_list, cfg, result_dict):
             ncols=0
         )
     for video_name in video_list:
+        # get the pre-loaded multi-class classification results
+        scores = cls_scores[video_name[2:]]
+        pred_class = cls_actions[np.argmax(scores)]
+        pred_conf = max(scores)
         # get video information
         data, offsetlist, sample_fps, duration = prepare_data(video_name, center_crop, cfg)
         
@@ -236,7 +232,7 @@ def inference_thread(lock, pid, video_list, cfg, result_dict):
         # finish offset loop
 
         # get final detection results for each video
-        result_dict[video_name[2:]] = get_video_prediction(output, duration, cfg, cls_rng=class_range)
+        result_dict[video_name[2:]] = get_video_prediction(output, pred_class, pred_conf, duration, cfg, cls_rng=class_range)
         with lock:
             progress.update(1)
     # finish video loop
@@ -249,7 +245,11 @@ def testing(cfg, output_file, thread_num=1):
     processes = []
     lock = threading.Lock()
     
-    video_list = list(cfg.video_infos.keys())
+    test_cls_data = load_json('datasets/activitynet/result_tsn_val.json')
+    videos_in_clsdata = ['v_' + name for name in list(test_cls_data['results'].keys())]
+    videos_in_annodata = list(cfg.video_infos.keys())
+    video_list = list(set(videos_in_clsdata) & set(videos_in_annodata))
+
     video_num = len(video_list)
     per_thread_video_num = video_num // thread_num
     result_dict = mp.Manager().dict()
@@ -260,7 +260,7 @@ def testing(cfg, output_file, thread_num=1):
         else:
             sub_video_list = video_list[i * per_thread_video_num: (i + 1) * per_thread_video_num]
         # inference_thread(lock, i, sub_video_list, test_cls_data, cfg)
-        p = mp.Process(target=inference_thread, args=(lock, i, sub_video_list, cfg, result_dict))
+        p = mp.Process(target=inference_thread, args=(lock, i, sub_video_list, test_cls_data, cfg, result_dict))
         p.start()
         processes.append(p)
 
