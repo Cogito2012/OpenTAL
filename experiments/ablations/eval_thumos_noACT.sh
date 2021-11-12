@@ -7,8 +7,8 @@ source activate afsd
 python setup.py develop
 
 ALL_SPLITS="0 1 2"
-EXP_TAG="opental_final"
-OOD_SCORING="uncertainty"
+EXP_TAG="opental_noACT"
+OOD_SCORING="confidence"
 
 
 MODEL_OUTPUT=output/${EXP_TAG}/split_{id:d}/thumos14_open_rgb.json

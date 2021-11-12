@@ -135,6 +135,8 @@ def thresholding(cfg, output_file):
                 ood_score = 1 - prop['actionness'] / (1 - prop['uncertainty'] + 1e-6)
             elif cfg.scoring == 'u_by_inv_a':
                 ood_score = 1 - prop['uncertainty'] / (1 - prop['actionness'] + 1e-6)
+            elif cfg.scoring == 'half_au':
+                ood_score = 1 - 0.5 * (prop['actionness'] + 1) * prop['uncertainty']
             all_scores.append(ood_score)
     score_sorted = np.sort(all_scores)  # sort the confidence score in an increasing order
     N = len(all_scores)

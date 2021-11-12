@@ -14,7 +14,7 @@ def draw_OSDR_curve(split):
         # draw curves
         for tidx, (fpr, cdr, osdr, tiou) in enumerate(zip(osdr_data['fpr'], osdr_data['cdr'], osdr_data['osdr'], osdr_data['tiou'])):
             if tiou == tiou_target:
-                plt.plot(fpr[:-2], cdr[:-2], line_styles[idx], label=f'{label} ({osdr*100:.2f})')
+                plt.plot(fpr[:-2], cdr[:-2], line_styles[idx], linewidth=2, label=f'{label} ({osdr*100:.2f})')
     plt.xlabel('False Positive Rate', fontsize=fontsize)
     plt.ylabel('Correct Detection Rate', fontsize=fontsize)
     plt.xlim(0, 1)
@@ -39,7 +39,7 @@ def draw_ROC_curve(split):
         # draw curves
         for tidx, (fpr, tpr, auc, tiou) in enumerate(zip(roc_data['fpr'], roc_data['tpr'], roc_data['auc'], roc_data['tiou'])):
             if tiou == tiou_target:
-                plt.plot(fpr, tpr, line_styles[idx], label=f'{label} ({auc*100:.2f})')
+                plt.plot(fpr, tpr, line_styles[idx], linewidth=2, label=f'{label} ({auc*100:.2f})')
     plt.xlabel('False Positive Rate', fontsize=fontsize)
     plt.ylabel('True Positive Rate', fontsize=fontsize)
     plt.xlim(0, 1)
@@ -84,7 +84,7 @@ if __name__ == '__main__':
     # split = '2'
     tiou_target = 0.3
     line_styles = ['r-', 'g-', 'b-']
-    fontsize = 18
+    fontsize = 22
     fig_path = 'experiments/figs'
     os.makedirs(fig_path, exist_ok=True)
 

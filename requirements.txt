@@ -9,3 +9,4 @@ tensorboardX
 tensorboard
 matplotlib
 sklearn
+seaborn

@@ -139,6 +139,8 @@ def decode_predictions(loc, prop_loc, priors, conf, prop_conf, unct, prop_unct, 
 
 def filtering(decoded_segments, conf_score_cls, uncertainty, actionness, conf_thresh, use_edl=False, os_head=False):
     c_mask = conf_score_cls > conf_thresh
+    if os_head:
+        c_mask = c_mask & (actionness > 0.5)
     scores = conf_score_cls[c_mask]
     if scores.size(0) == 0:
         return None

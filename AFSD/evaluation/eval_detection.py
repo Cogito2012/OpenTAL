@@ -195,6 +195,10 @@ class ANETdetection(object):
                     res_score = 1 - result['uncertainty'] / (1 - result['actionness'] + 1e-6)
                     uncertainty_lst.append(result['uncertainty'])
                     actness_lst.append(result['actionness'])
+                elif self.ood_scoring == 'half_au':
+                    res_score = 1 - 0.5 * (result['actionness'] + 1) * result['uncertainty']
+                    uncertainty_lst.append(result['uncertainty'])
+                    actness_lst.append(result['actionness'])
                 ood_score_lst.append(res_score)
                 if self.openset and self.ood_threshold is not None and res_score < self.ood_threshold:
                     label = self.activity_index['__unknown__']  # reject the unknown
