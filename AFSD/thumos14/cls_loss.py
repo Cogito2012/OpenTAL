@@ -88,6 +88,7 @@ class EvidenceLoss(nn.Module):
         self.soft_label = cfg['soft_label'] if 'soft_label' in cfg else 0.0
         self.iou_aware = cfg['iou_aware'] if 'iou_aware' in cfg else False
         self.with_ghm = cfg['with_ghm'] if 'with_ghm' in cfg else False
+        self.with_ibloss = cfg['with_ibloss'] if 'with_ibloss' in cfg else False
         self.with_ibm = cfg['with_ibm'] if 'with_ibm' in cfg else False
         self.eps = 1e-10
         if self.with_focal:
@@ -103,6 +104,8 @@ class EvidenceLoss(nn.Module):
             self.edges[-1] += 1e-6
             if self.momentum > 0:
                 self.acc_sum = [0.0 for _ in range(self.num_bins)]
+        if self.with_ibloss:
+            self.ib_start = cfg['ib_start'] if 'ib_start' in cfg else 10
         if self.with_ibm:
             self.ibm_start = cfg['ibm_start'] if 'ibm_start' in cfg else 0
             # self.coeff = cfg['ibm_coeff'] if 'ibm_coeff' in cfg else 10
@@ -149,7 +152,7 @@ class EvidenceLoss(nn.Module):
         loss, func = self.get_loss_func()
         
          # L_1 norm of feature
-        feat_norm = torch.sum(torch.abs(logit), 1).reshape(-1) if self.with_ibm else None
+        feat_norm = torch.sum(torch.abs(logit), 1).reshape(-1) if (self.with_ibm or self.with_ibloss) else None
         
         # compute losses
         pred_alpha = self.evidence_func(logit) + 1  # (alpha = e + 1)
@@ -245,6 +248,13 @@ class EvidenceLoss(nn.Module):
                 weights = weights / n
             # compute the weighted EDL loss
             cls_loss = torch.sum(y * weights * (func(S) - func(alpha)), dim=1)
+        elif self.with_ibloss and self.epoch > self.ib_start:
+            alpha_pred = alpha.detach().clone()  # (N, K)
+            uncertainty = self.num_cls / alpha_pred.sum(dim=-1, keepdim=True)  # (N, 1)
+            grad_norm = torch.sum(torch.abs(1 / alpha_pred - uncertainty) * y, dim=1)  # sum_j|y_ij * (1/alpha_ij - u_i)|, (N)
+            weights = 1 / (grad_norm * feat_norm.detach())
+            # compute the weighted EDL loss
+            cls_loss = weights * torch.sum(y * (func(S) - func(alpha)), dim=1)
         elif self.with_ibm and self.epoch >= self.ibm_start:
             alpha_pred = alpha.detach().clone()  # (N, K)
             uncertainty = self.num_cls / alpha_pred.sum(dim=-1, keepdim=True)  # (N, 1)
