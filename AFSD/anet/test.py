@@ -268,6 +268,7 @@ def testing(cfg, output_file, thread_num=1):
         p.join()
 
     # save results
+    assert len(result_dict) == video_num, "Incomplete testing results!"
     output_dict = {"version": "ActivityNet-v1.3", "results": dict(result_dict), "external_data": {}}
     with open(output_file, "w") as out:
         json.dump(output_dict, out)

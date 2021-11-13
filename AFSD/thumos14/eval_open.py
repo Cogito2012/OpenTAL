@@ -14,18 +14,9 @@ parser.add_argument('--all_splits', nargs='+', type=int)
 parser.add_argument('--open_set', action='store_true')
 parser.add_argument('--draw_auc', action='store_true')
 parser.add_argument('--ood_scoring', type=str, default='confidence', choices=['uncertainty', 'confidence', 'uncertainty_actionness', 'a_by_inv_u', 'u_by_inv_a', 'half_au'])
-# parser.add_argument('--trainset_result', type=str)
 args = parser.parse_args()
 
 tious = [0.3, 0.4, 0.5, 0.6, 0.7]
-
-
-# def read_threshold(trainset_result):
-#     assert os.path.exists(trainset_result), 'File does not exist! %s'%(trainset_result)
-#     with open(trainset_result, 'r') as fobj:
-#         data = json.load(fobj)
-#         threshold = data['external_data']['threshold']
-#     return threshold
 
 
 def write_eval_open(eval_file, tious, auc_ROC, auc_PR, OSDR):
@@ -51,8 +42,6 @@ for split in args.all_splits:
     gt_file = args.gt_json if args.open_set else args.gt_json.format(id=split)
     pred_file = args.output_json.format(id=split)
     cls_idx_known = args.cls_idx_known.format(id=split)
-    # read threshold value
-    # threshold = read_threshold(args.trainset_result.format(id=split)) if args.open_set else 0
     auc_data_path = os.path.join(os.path.join(os.path.dirname(pred_file), 'auc_data'))
     os.makedirs(auc_data_path, exist_ok=True)
     # instantiate evaluator
@@ -67,10 +56,7 @@ for split in args.all_splits:
         draw_auc=args.draw_auc,
         curve_data_path=auc_data_path,
         verbose=False)
-    print_str = f'Running the evaluation on split {split}'
-    # if args.open_set:
-    #     print_str = print_str + f' with threshold {threshold:.12f}...'
-    # print(print_str)
+
     # run evaluation
     if args.open_set:
         anet_detection.pre_evaluate()

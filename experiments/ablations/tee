@@ -1,0 +1,61 @@
+running develop
+running egg_info
+writing AFSD.egg-info/PKG-INFO
+writing dependency_links to AFSD.egg-info/dependency_links.txt
+writing top-level names to AFSD.egg-info/top_level.txt
+reading manifest file 'AFSD.egg-info/SOURCES.txt'
+adding license file 'LICENSE'
+writing manifest file 'AFSD.egg-info/SOURCES.txt'
+running build_ext
+building 'boundary_max_pooling_cuda' extension
+Emitting ninja build file /home/wentao/OSTAL/AFSD-OS/build/temp.linux-x86_64-3.7/build.ninja...
+Compiling objects...
+Allowing ninja to set a default number of workers... (overridable by setting the environment variable MAX_JOBS=N)
+ninja: no work to do.
+g++ -pthread -shared -B /home/wentao/anaconda3/envs/afsd/compiler_compat -L/home/wentao/anaconda3/envs/afsd/lib -Wl,-rpath=/home/wentao/anaconda3/envs/afsd/lib -Wl,--no-as-needed -Wl,--sysroot=/ /home/wentao/OSTAL/AFSD-OS/build/temp.linux-x86_64-3.7/AFSD/prop_pooling/boundary_max_pooling_cuda.o /home/wentao/OSTAL/AFSD-OS/build/temp.linux-x86_64-3.7/AFSD/prop_pooling/boundary_max_pooling_kernel.o -L/home/wentao/anaconda3/envs/afsd/lib/python3.7/site-packages/torch/lib -L/home/wentao/anaconda3/envs/afsd/lib64 -lc10 -ltorch -ltorch_cpu -ltorch_python -lcudart -lc10_cuda -ltorch_cuda_cu -ltorch_cuda_cpp -o build/lib.linux-x86_64-3.7/boundary_max_pooling_cuda.cpython-37m-x86_64-linux-gnu.so
+copying build/lib.linux-x86_64-3.7/boundary_max_pooling_cuda.cpython-37m-x86_64-linux-gnu.so -> 
+Creating /home/wentao/anaconda3/envs/afsd/lib/python3.7/site-packages/AFSD.egg-link (link to .)
+AFSD 3.0 is already the active version in easy-install.pth
+
+Installed /home/wentao/OSTAL/AFSD-OS
+Processing dependencies for AFSD==3.0
+Finished processing dependencies for AFSD==3.0
+
+Closed Set Evaluation (15 Classes)
+mAP(tIoU=0.3): mean=0.54680, std=0.01418
+mAP(tIoU=0.4): mean=0.47337, std=0.00932
+mAP(tIoU=0.5): mean=0.39248, std=0.01525
+mAP(tIoU=0.6): mean=0.29136, std=0.02257
+mAP(tIoU=0.7): mean=0.18406, std=0.01192
+Average mAP is 0.37761 (0.01416)
+
+
+Open Set Evaluation (15+1 Classes)
+For evaluating AUC curves...
+For drawing AUC curves...
+For evaluating AUC curves...
+For drawing AUC curves...
+For evaluating AUC curves...
+For drawing AUC curves...
+AUC_ROC(tIoU=0.3): mean=0.73858, std=0.02742
+AUC_ROC(tIoU=0.4): mean=0.77320, std=0.08867
+AUC_ROC(tIoU=0.5): mean=0.00000, std=0.00000
+AUC_ROC(tIoU=0.6): mean=0.00000, std=0.00000
+AUC_ROC(tIoU=0.7): mean=0.00000, std=0.00000
+Average AUC_ROC = 0.30236 (0.02296)
+
+AUC_PR(tIoU=0.3): mean=0.50268, std=0.07255
+AUC_PR(tIoU=0.4): mean=0.80080, std=0.26937
+AUC_PR(tIoU=0.5): mean=0.00000, std=0.00000
+AUC_PR(tIoU=0.6): mean=0.00000, std=0.00000
+AUC_PR(tIoU=0.7): mean=0.00000, std=0.00000
+Average AUC_PR = 0.26070 (0.04368)
+
+OSDR(tIoU=0.3): mean=0.52614, std=0.03891
+OSDR(tIoU=0.4): mean=0.37859, std=0.11432
+OSDR(tIoU=0.5): mean=0.00000, std=0.00000
+OSDR(tIoU=0.6): mean=0.00000, std=0.00000
+OSDR(tIoU=0.7): mean=0.00000, std=0.00000
+Average OSDR = 0.18095 (0.03017)
+
+Experiments finished!

@@ -179,24 +179,24 @@ class ANETdetection(object):
                     continue
                 # known/unknown classification
                 if self.ood_scoring == 'uncertainty':
-                    res_score = 1 - result['uncertainty']
+                    res_score = result['uncertainty']
                     uncertainty_lst.append(result['uncertainty'])
                 elif self.ood_scoring == 'confidence':
-                    res_score = result['score']
+                    res_score = 1 - result['score']
                 elif self.ood_scoring == 'uncertainty_actionness':
-                    res_score = 1 - result['uncertainty'] * result['actionness']
+                    res_score = result['uncertainty'] * result['actionness']
                     uncertainty_lst.append(result['uncertainty'])
                     actness_lst.append(result['actionness'])
                 elif self.ood_scoring == 'a_by_inv_u':
-                    res_score = 1 - result['actionness'] / (1 - result['uncertainty'] + 1e-6)
+                    res_score = result['actionness'] / (1 - result['uncertainty'] + 1e-6)
                     uncertainty_lst.append(result['uncertainty'])
                     actness_lst.append(result['actionness'])
                 elif self.ood_scoring == 'u_by_inv_a':
-                    res_score = 1 - result['uncertainty'] / (1 - result['actionness'] + 1e-6)
+                    res_score = result['uncertainty'] / (1 - result['actionness'] + 1e-6)
                     uncertainty_lst.append(result['uncertainty'])
                     actness_lst.append(result['actionness'])
                 elif self.ood_scoring == 'half_au':
-                    res_score = 1 - 0.5 * (result['actionness'] + 1) * result['uncertainty']
+                    res_score = 0.5 * (result['actionness'] + 1) * result['uncertainty']
                     uncertainty_lst.append(result['uncertainty'])
                     actness_lst.append(result['actionness'])
                 ood_score_lst.append(res_score)
@@ -429,14 +429,14 @@ def split_results_by_gt(prediction_all, ground_truth_all, video_list, tiou_thres
     pred_scores = [{'bg': [], 'known': [], 'unknown': []} for _ in tiou_thresholds]
     pred_labels = [{'bg': [], 'known': [], 'unknown': []} for _ in tiou_thresholds]
     gt_labels = [{'bg': [], 'known': [], 'unknown': []} for _ in tiou_thresholds]
-    for video_name in tqdm(video_list, total=len(video_list), desc='Compute AUC'):
+    for video_name in tqdm(video_list, total=len(video_list), desc='Compute AUC', position=0, leave=True):
         ground_truth = ground_truth_by_vid.get_group(video_name).reset_index()
         prediction = _get_predictions_with_vid(prediction_by_vid, video_name)
         if prediction.empty:
             continue
         lock_gt = np.ones((len(ground_truth))) * -1
         for idx, this_pred in prediction.iterrows():
-            ood_score = this_pred['ood_score']  # high value indicates known class
+            ood_score = this_pred['ood_score']  # high value indicates unknown class
             label_pred = this_pred['label']  # all predicted classes are known classes without using threshold here!
             tiou_arr = segment_iou(this_pred[['t-start', 't-end']].values,
                                    ground_truth[['t-start', 't-end']].values)
@@ -475,7 +475,7 @@ def compute_auc_scores(pred_scores, gt_labels, tiou_thresholds=np.linspace(0.5, 
     for tidx, tiou in enumerate(tiou_thresholds):
         preds = pred_scores[tidx]['known'] + pred_scores[tidx]['unknown']
         labels_cls = gt_labels[tidx]['known'] + gt_labels[tidx]['unknown']
-        labels = np.array(labels_cls).astype(bool).astype(int).tolist()
+        labels = (1 - np.array(labels_cls).astype(bool).astype(int)).tolist()  # known: 0, unknown: 1
         if len(preds) > 0 and len(labels) > 0:
             auc_pr[tidx] = average_precision_score(labels, preds)  # note that this is interpolated approximation of precision_recall_curve() + auc()
             auc_roc[tidx] = roc_auc_score(labels, preds) if len(list(set(labels))) > 1 else 0  # at least there should be two classes
@@ -502,11 +502,11 @@ def compute_osdr_scores(pred_scores, pred_labels, gt_labels, tiou_thresholds=np.
     osdr = np.zeros((len(tiou_thresholds),), dtype=np.float32)
     osdr_data = {'fpr': [], 'cdr': [], 'osdr': [], 'tiou': []} if vis else None
     for tidx, tiou in enumerate(tiou_thresholds):
-        preds = pred_scores[tidx]['known'] + pred_scores[tidx]['unknown']  # float values ranging from 0-1
-        pred_cls = pred_labels[tidx]['known'] + pred_labels[tidx]['unknown']  # integer values ranging from 1-K
-        gt_cls = gt_labels[tidx]['known'] + gt_labels[tidx]['unknown']  # integer values ranging from 0-K
+        preds = 1 - np.array(pred_scores[tidx]['known'] + pred_scores[tidx]['unknown'])  # confidence. 0: unknown, 1: known
+        pred_cls = np.array(pred_labels[tidx]['known'] + pred_labels[tidx]['unknown'])  # integer values ranging from 1-K
+        gt_cls = np.array(gt_labels[tidx]['known'] + gt_labels[tidx]['unknown'])  # integer values ranging from 0-K
         if len(preds) > 0:
-            osdr[tidx], fpr, cdr = open_set_detection_rate(np.array(preds), np.array(pred_cls), np.array(gt_cls))
+            osdr[tidx], fpr, cdr = open_set_detection_rate(preds, pred_cls, gt_cls)
             if vis:
                 osdr_data['fpr'].append(fpr)
                 osdr_data['cdr'].append(cdr)
