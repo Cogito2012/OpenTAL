@@ -79,7 +79,7 @@ def prepare_data(video_name, center_crop, cfg):
     frames = data
     frames = np.transpose(frames, [3, 0, 1, 2])
     data = center_crop(frames)
-    data = torch.from_numpy(data.copy())
+    data = torch.from_numpy(data.copy()).cuda()
     return data, offsetlist, sample_fps, duration
 
 
@@ -88,9 +88,9 @@ def prepare_clip(data, offset, clip_length, crop_size):
     clip = clip.float()
     if clip.size(1) < clip_length:
         tmp = torch.ones(
-            [clip.size(0), clip_length - clip.size(1), crop_size, crop_size]).float() * 127.5
+            [clip.size(0), clip_length - clip.size(1), crop_size, crop_size]).float().cuda() * 127.5
         clip = torch.cat([clip, tmp], dim=1)
-    clip = clip.unsqueeze(0).cuda()
+    clip = clip.unsqueeze(0)
     clip = (clip / 255.0) * 2.0 - 1.0
     return clip
 
@@ -131,7 +131,7 @@ def decode_prediction(output_dict, cfg, score_func=nn.Softmax(dim=-1)):
     return decoded_segments, conf_scores, uncertainty, actionness
 
 
-def filtering(decoded_segments, conf_score_cls, uncertainty, actionness, offset, sample_fps, cfg, conf_thresh=1e-9):
+def filtering(decoded_segments, conf_score_cls, uncertainty, actionness, offset, sample_fps, cfg, conf_thresh=0.001):
     c_mask = conf_score_cls > conf_thresh
     if cfg.os_head:
         c_mask = c_mask & (actionness > 0.5)
@@ -163,7 +163,7 @@ def get_video_prediction(output, duration, cfg, cls_rng=None):
         if len(output[cl]) == 0:
             continue
         tmp = torch.cat(output[cl], 0)
-        tmp, count = softnms_v2(tmp, sigma=cfg.nms_sigma, top_k=cfg.top_k, score_threshold=1e-9, use_edl=cfg.use_edl, os_head=cfg.os_head)
+        tmp, count = softnms_v2(tmp, sigma=cfg.nms_sigma, top_k=cfg.top_k, score_threshold=0.001, use_edl=cfg.use_edl, os_head=cfg.os_head)
         res[cl, :count] = tmp
 
     flt = res.contiguous().view(-1, res_dim)
@@ -245,13 +245,9 @@ def inference_thread(lock, pid, video_list, cfg, result_dict):
         progress.close()
 
 
-def testing(cfg, output_file, thread_num=1):
+def testing_multithread(cfg, video_list, output_file, thread_num=1):
     processes = []
     lock = threading.Lock()
-    
-    video_list = list(cfg.video_infos.keys())
-    videos_in_disk = [filename[:-4] for filename in os.listdir(cfg.mp4_data_path)]
-    video_list = list(set(video_list) & set(videos_in_disk))
 
     video_num = len(video_list)
     per_thread_video_num = video_num // thread_num
@@ -277,11 +273,75 @@ def testing(cfg, output_file, thread_num=1):
         json.dump(output_dict, out)
 
 
+def testing(cfg, video_list, output_file):
+
+    net = BDNet(in_channels=cfg.input_channels,
+                training=False, use_edl=cfg.use_edl)
+    net.load_state_dict(torch.load(get_path(cfg.checkpoint_path)))
+    net.eval().cuda()
+
+    out_layer = DirichletLayer(evidence=cfg.evidence, dim=-1) if cfg.use_edl else nn.Softmax(dim=-1)
+    center_crop = videotransforms.CenterCrop(cfg.crop_size)
+    class_range = range(1, cfg.num_classes) if not cfg.os_head else range(0, cfg.num_classes)
+
+    result_dict = {}
+    progress = tqdm.tqdm(
+        total=len(video_list),
+        position=0,
+        desc='ANet Inference',
+        ncols=0
+    )
+    for video_name in video_list:
+        # get video information
+        data, offsetlist, sample_fps, duration = prepare_data(video_name, center_crop, cfg)
+        
+        output = [[] for cl in range(cfg.num_classes)]
+        for offset in offsetlist:
+            # prepare clip of a video
+            clip = prepare_clip(data, offset, cfg.clip_length, cfg.crop_size)
+            # run inference
+            with torch.no_grad():
+                output_dict = net(clip)
+
+            # decode results
+            decoded_segments, conf_scores, uncertainty, actionness = decode_prediction(output_dict, cfg, out_layer)
+            # filtering
+            for cl in class_range:
+                segments = filtering(decoded_segments, conf_scores[cl], uncertainty, actionness, offset, sample_fps, cfg)
+                if segments is None:
+                    continue
+                output[cl].append(segments)
+        # get final detection results for each video
+        result_dict[video_name[2:]] = get_video_prediction(output, duration, cfg, cls_rng=class_range)
+        progress.update(1)
+
+    # save results
+    assert len(result_dict) == len(video_list), "Incomplete testing results!"
+    output_dict = {"version": "ActivityNet-v1.3", "results": dict(result_dict), "external_data": {}}
+    with open(output_file, "w") as out:
+        json.dump(output_dict, out)
+
+
 def main():
     cfg = get_basic_config(config, dataset='testing')
 
+    video_list = list(cfg.video_infos.keys())
+    videos_in_disk = [filename[:-4] for filename in os.listdir(cfg.mp4_data_path)]
+    video_list = list(set(video_list) & set(videos_in_disk))
+    
     output_file = os.path.join(cfg.output_path, cfg.json_name)
-    testing(cfg, output_file, thread_num=cfg.thread_num)
+    # testing_multithread(cfg, video_list, output_file, thread_num=cfg.thread_num)
+
+    rerun = True
+    if os.path.exists(output_file):
+        with open(output_file, 'r') as f:
+            output_dict = json.load(f)
+        if len(output_dict['results']) == len(video_list):
+            rerun = False
+    if rerun:
+        testing(cfg, video_list, output_file)
+    else:
+        print(f'Result file exist and it is complete! \n{output_file}')
 
 
 if __name__ == '__main__':
