@@ -21,9 +21,15 @@ max_epoch = config['training']['max_epoch']
 num_classes = config['dataset']['num_classes']
 checkpoint_path = config['training']['checkpoint_path']
 focal_loss = config['training']['focal_loss']
+# EDL loss config
 edl_loss = config['training']['edl_loss'] if 'edl_loss' in config['training'] else False
 edl_config = config['training']['edl_config'] if 'edl_config' in config['training'] else None
 cls_loss_type = 'edl' if edl_loss else 'focal' # by default, we use focal loss
+# RPL loss config
+rpl_loss = config['training']['rpl_loss'] if 'rpl_loss' in config['training'] else False
+rpl_config = config['training']['rpl_config'] if 'rpl_config' in config['training'] else None
+cls_loss_type = 'rpl' if rpl_loss else 'focal' # by default, we use focal loss
+# Open Set head (Actionness Prediction)
 os_head = config['model']['os_head'] if 'os_head' in config['model'] else False
 act_config = config['training']['act_config'] if 'act_config' in config['training'] else None
 random_seed = config['training']['random_seed']
@@ -177,11 +183,7 @@ def forward_one_epoch(net, clips, targets, scores=None, training=True, ssl=True)
         trip_loss = torch.stack(loss_).sum(0)
         return trip_loss
     else:
-        loss_l, loss_c, loss_prop_l, loss_prop_c, loss_ct, loss_act, loss_prop_act = CPD_Loss(
-            [output_dict['loc'], output_dict['conf'],
-             output_dict['prop_loc'], output_dict['prop_conf'],
-             output_dict['center'], output_dict['priors'], output_dict['act'], output_dict['prop_act']],
-            targets)
+        loss_l, loss_c, loss_prop_l, loss_prop_c, loss_ct, loss_act, loss_prop_act = CPD_Loss(output_dict, targets)
         loss_start, loss_end = calc_bce_loss(output_dict['start'], output_dict['end'], scores)
         versions = torch.__version__.split('.')
         if int(versions[0]) == 1 and int(versions[1]) >= 6: # version later than torch 1.6.0
@@ -308,8 +310,9 @@ if __name__ == '__main__':
     Setup model
     """
     use_edl = config['model']['use_edl'] if 'use_edl' in config['model'] else False
+    use_rpl = config['model']['use_rpl'] if 'use_rpl' in config['model'] else False
     net = BDNet(in_channels=config['model']['in_channels'],
-                backbone_model=config['model']['backbone_model'], use_edl=use_edl)
+                backbone_model=config['model']['backbone_model'], use_edl=use_edl, use_rpl=use_rpl)
     net = nn.DataParallel(net, device_ids=[0]).cuda()
 
     """
@@ -323,7 +326,7 @@ if __name__ == '__main__':
     """
     piou = config['training']['piou']
     num_cls = num_classes - 1 if os_head else num_classes
-    CPD_Loss = MultiSegmentLoss(num_cls, piou, 1.0, cls_loss_type=cls_loss_type, edl_config=edl_config, os_head=os_head, act_config=act_config)
+    CPD_Loss = MultiSegmentLoss(num_cls, piou, 1.0, cls_loss_type=cls_loss_type, edl_config=edl_config, rpl_config=rpl_config, os_head=os_head, act_config=act_config)
 
     """
     Setup dataloader

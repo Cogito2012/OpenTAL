@@ -226,7 +226,7 @@ def test(cfg, output_file):
 
     centor_crop = videotransforms.CenterCrop(cfg.crop_size)
     result_dict = {}
-    for video_name in tqdm.tqdm(list(video_infos.keys()), ncols=0, desc='THUMOS Inference'):
+    for video_name in tqdm(list(video_infos.keys()), ncols=0, desc='THUMOS Inference'):
         # get the clip offsets
         sample_fps = video_infos[video_name]['sample_fps']
         frame_count = video_infos[video_name]['sample_count']
@@ -367,7 +367,7 @@ def get_basic_config(config):
     cfg.json_name = config['testing']['output_json']
     outpath = config['testing']['output_path']
     split_folder = outpath.split('/')[-1]
-    cfg.output_path = os.path.join(os.path.dirname(os.path.dirname(outpath)), 'opental_crossdata', split_folder)
+    cfg.output_path = os.path.join(os.path.dirname(os.path.dirname(outpath)), config['testing']['exp_tag'], split_folder)
     if not os.path.exists(cfg.output_path):
         os.makedirs(cfg.output_path)
     cfg.fusion = config['testing']['fusion']

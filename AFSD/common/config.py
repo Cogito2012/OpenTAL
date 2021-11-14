@@ -34,6 +34,7 @@ def get_config():
     parser.add_argument('--open_set', action='store_true')
     parser.add_argument('--split', type=int, choices=[0, 1, 2, 3, 4], default=0)
     parser.add_argument('--ood_scoring', type=str, default='confidence', choices=['uncertainty', 'confidence', 'uncertainty_actionness', 'a_by_inv_u', 'u_by_inv_a', 'half_au'])
+    parser.add_argument('--exp_tag', type=str, default=None)
 
     args = parser.parse_args()
 
@@ -78,6 +79,8 @@ def get_config():
         data['testing']['top_k'] = args.top_k
     if args.output_json is not None:
         data['testing']['output_json'] = args.output_json
+    if args.exp_tag is not None:
+        data['testing']['exp_tag'] = args.exp_tag
 
     data['open_set'] = args.open_set
     if args.open_set:

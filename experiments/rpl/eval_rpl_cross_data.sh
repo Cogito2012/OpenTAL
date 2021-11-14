@@ -7,7 +7,7 @@ source activate afsd
 python setup.py develop
 
 ALL_SPLITS="0 1 2"
-EXP_TAG="opental_crossdata"
+EXP_TAG="open_edl_crossdata"
 OOD_SCORING="uncertainty"
 
 

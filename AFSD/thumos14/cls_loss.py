@@ -337,3 +337,35 @@ class ActionnessLoss(nn.Module):
 
         loss_total = loss_bce + self.weight * loss_rank
         return loss_total, num_pos + num_neg
+
+
+class RPLoss(nn.Module):
+    def __init__(self, num_classes, cfg, size_average=False):
+        super(RPLoss, self).__init__()
+        self.weight_pl = cfg['weight_pl'] if 'weight_pl' in cfg else 0.1
+        self.temp = cfg['temperature'] if 'temperature' in cfg else 1
+        self.radius = 1
+        self.radius = nn.Parameter(torch.Tensor(self.radius))
+        self.radius.data.fill_(0)
+        self.size_average = size_average
+        self.num_cls = num_classes
+    
+
+    def forward(self, dist, targets, feats, centers, reduction=False):
+        """ dist: (T, K+1)
+            targets: (T, 1)
+            feats: (T, D)
+            centers: (K+1, D)
+        """
+        reduction_final = 'mean' if self.size_average else 'sum'
+        if reduction:
+            reduction_final = 'mean'
+        labels = targets.view(-1) 
+        # CE loss
+        loss = F.cross_entropy(dist / self.temp, labels, reduction=reduction_final)
+        center_batch = centers[labels, :]  # (T, D)
+        _dis = (feats - center_batch).pow(2).mean(1)
+        _dis_target = self.radius.to(dist.device).tile(_dis.size())
+        loss_r = F.mse_loss(_dis, _dis_target, reduction=reduction_final)
+        loss = loss + self.weight_pl * loss_r
+        return loss
