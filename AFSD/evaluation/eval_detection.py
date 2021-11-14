@@ -34,7 +34,7 @@ class ANETdetection(object):
                  tiou_thresholds=np.linspace(0.5, 0.95, 10),
                  ood_threshold=None, 
                  ood_scoring='confidence',
-                 subset='validation', 
+                 subset=['validation'], 
                  openset=False,
                  draw_auc=False,
                  curve_data_path=None,
@@ -57,7 +57,7 @@ class ANETdetection(object):
         self.pred_fields = prediction_fields
         self.ap = None
         self.check_status = check_status
-        assert dataset in ['thumos14', 'anet']
+        assert dataset in ['thumos14', 'anet', 'thumos_anet']
         self.dataset = dataset
         # Retrieve blocked videos from server.
 
@@ -75,7 +75,7 @@ class ANETdetection(object):
         self.prediction = self._import_prediction(prediction_filename)
 
         if self.verbose:
-            print ('[INIT] Loaded annotations from {} subset.'.format(subset))
+            print ('[INIT] Loaded annotations from {} subset.'.format(subset[0]))
             nr_gt = len(self.ground_truth)
             print ('\tNumber of ground truth instances: {}'.format(nr_gt))
             nr_pred = len(self.prediction)
@@ -88,7 +88,7 @@ class ANETdetection(object):
         class_to_idx = {}
         if self.openset:
             class_to_idx['__unknown__'] = 0  # 0 is reserved for unknown in open set
-        if self.dataset == 'thumos14':
+        if self.dataset in ['thumos14', 'thumos_anet']:
             txt = np.loadtxt(class_info_path, dtype=str)
             for idx, l in enumerate(txt):
                 class_to_idx[l[1]] = idx + 1  # starting from 1 to K (K=15 for thumos14)
@@ -122,7 +122,7 @@ class ANETdetection(object):
         video_lst, t_start_lst, t_end_lst, label_lst = [], [], [], []
         for videoid, v in data['database'].items():
             # print(v)
-            if self.subset != v['subset']:
+            if v['subset'] not in self.subset:
                 continue
             if videoid in self.blocked_videos:
                 continue

@@ -48,7 +48,7 @@ for split in args.all_splits:
         ground_truth_filename=gt_file,
         prediction_filename=pred_file,
         cls_idx_detection=cls_idx_known,
-        subset='validation', 
+        subset=['validation'], 
         openset=args.open_set,
         ood_scoring=args.ood_scoring,
         tiou_thresholds=tious,

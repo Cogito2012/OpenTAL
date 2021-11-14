@@ -13,10 +13,15 @@ parser.add_argument('--cls_idx_known', type=str)
 parser.add_argument('--all_splits', nargs='+', type=int)
 parser.add_argument('--open_set', action='store_true')
 parser.add_argument('--draw_auc', action='store_true')
+parser.add_argument('--dataset', type=str, default='thumos', choices=['thumos14', 'thumos_anet'])
 parser.add_argument('--ood_scoring', type=str, default='confidence', choices=['uncertainty', 'confidence', 'uncertainty_actionness', 'a_by_inv_u', 'u_by_inv_a', 'half_au'])
 args = parser.parse_args()
 
 tious = [0.3, 0.4, 0.5, 0.6, 0.7]
+
+subset = ['test']
+if args.dataset == 'thumos_anet':
+    subset = ['test', 'validation']
 
 
 def write_eval_open(eval_file, tious, auc_ROC, auc_PR, OSDR):
@@ -49,13 +54,14 @@ for split in args.all_splits:
         ground_truth_filename=gt_file,
         prediction_filename=pred_file,
         cls_idx_detection=cls_idx_known,
-        subset='test', 
+        subset=subset, 
         openset=args.open_set,
         ood_scoring=args.ood_scoring,
         tiou_thresholds=tious,
         draw_auc=args.draw_auc,
         curve_data_path=auc_data_path,
-        verbose=False)
+        verbose=False,
+        dataset=args.dataset)
 
     # run evaluation
     if args.open_set:

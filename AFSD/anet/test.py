@@ -250,6 +250,9 @@ def testing(cfg, output_file, thread_num=1):
     lock = threading.Lock()
     
     video_list = list(cfg.video_infos.keys())
+    videos_in_disk = [filename[:-4] for filename in os.listdir(cfg.mp4_data_path)]
+    video_list = list(set(video_list) & set(videos_in_disk))
+
     video_num = len(video_list)
     per_thread_video_num = video_num // thread_num
     result_dict = mp.Manager().dict()
