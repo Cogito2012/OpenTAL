@@ -7,7 +7,7 @@ source activate afsd
 
 GPU_ID=$1
 ALL_SPLITS="0 1 2"
-EXP_TAG="open_rpl"  # should be the same in yaml config
+EXP_TAG="open_gcpl"  # should be the same in yaml config
 
 
 # Inference on testing set
@@ -18,7 +18,7 @@ do
         # run RGB model
         echo "Test the RGB model on Thumos14 Open Set (Split=${SPLIT}):"
         CUDA_VISIBLE_DEVICES=${GPU_ID} python AFSD/thumos14/test.py \
-            configs/thumos14_open_rpl.yaml \
+            configs/thumos14_open_gcpl.yaml \
             --open_set \
             --split=${SPLIT} \
             --output_json=thumos14_open_rgb.json 

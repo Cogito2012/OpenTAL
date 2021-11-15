@@ -525,7 +525,7 @@ class BDNet(nn.Module):
                 unct = self.out_layer.compute_uncertainty(conf)
                 prop_unct = self.out_layer.compute_uncertainty(prop_conf)
                 out_dict.update({'unct': unct, 'prop_unct': prop_unct})
-            if self.use_rpl:
+            if self.use_rpl and self.training:
                 cls_centers = self.coarse_pyramid_detection.conf_head.centers  # (K+1, D)
                 prop_cls_centers = self.coarse_pyramid_detection.prop_conf_head.centers  # (K+1, D)
                 out_dict.update({'cls_ctr': cls_centers, 'prop_cls_ctr': prop_cls_centers,

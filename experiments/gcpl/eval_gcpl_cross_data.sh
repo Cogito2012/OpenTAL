@@ -7,7 +7,7 @@ source activate afsd
 python setup.py develop
 
 ALL_SPLITS="0 1 2"
-EXP_TAG="open_rpl_crossdata"
+EXP_TAG="open_gcpl_crossdata"
 OOD_SCORING="confidence"
 
 

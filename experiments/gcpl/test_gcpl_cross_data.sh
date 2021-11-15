@@ -7,7 +7,7 @@ source activate afsd
 
 GPU_ID=$1
 ALL_SPLITS="0 1 2"
-EXP_TAG="open_rpl_crossdata"
+EXP_TAG="open_gcpl_crossdata"
 
 
 # Inference on testing set
@@ -18,7 +18,7 @@ do
         # run RGB model
         echo "Test the RGB model on Thumos14+ActivityNet1.3 Open Set (Thumos Split=${SPLIT}):"
         CUDA_VISIBLE_DEVICES=${GPU_ID} python AFSD/thumos14/test_cross_data.py \
-            configs/thumos14_open_rpl.yaml \
+            configs/thumos14_open_gcpl.yaml \
             --open_set \
             --split=${SPLIT} \
             --exp_tag=${EXP_TAG} \

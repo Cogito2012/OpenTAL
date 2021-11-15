@@ -13,7 +13,7 @@ parser.add_argument('--cls_idx_known', type=str)
 parser.add_argument('--all_splits', nargs='+', type=int)
 parser.add_argument('--open_set', action='store_true')
 parser.add_argument('--draw_auc', action='store_true')
-parser.add_argument('--dataset', type=str, default='thumos', choices=['thumos14', 'thumos_anet'])
+parser.add_argument('--dataset', type=str, default='thumos14', choices=['thumos14', 'thumos_anet'])
 parser.add_argument('--ood_scoring', type=str, default='confidence', choices=['uncertainty', 'confidence', 'uncertainty_actionness', 'a_by_inv_u', 'u_by_inv_a', 'half_au'])
 args = parser.parse_args()
 

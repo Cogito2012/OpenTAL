@@ -344,6 +344,7 @@ class RPLoss(nn.Module):
         super(RPLoss, self).__init__()
         self.weight_pl = cfg['weight_pl'] if 'weight_pl' in cfg else 0.1
         self.temp = cfg['temperature'] if 'temperature' in cfg else 1
+        self.gcpl = cfg['gcpl'] if 'gcpl' in cfg else False
         self.radius = 1
         self.radius = nn.Parameter(torch.Tensor(self.radius))
         self.radius.data.fill_(0)
@@ -360,12 +361,18 @@ class RPLoss(nn.Module):
         reduction_final = 'mean' if self.size_average else 'sum'
         if reduction:
             reduction_final = 'mean'
-        labels = targets.view(-1) 
-        # CE loss
-        loss = F.cross_entropy(dist / self.temp, labels, reduction=reduction_final)
+        labels = targets.view(-1)
         center_batch = centers[labels, :]  # (T, D)
-        _dis = (feats - center_batch).pow(2).mean(1)
-        _dis_target = self.radius.to(dist.device).tile(_dis.size())
-        loss_r = F.mse_loss(_dis, _dis_target, reduction=reduction_final)
-        loss = loss + self.weight_pl * loss_r
+        if self.gcpl:
+            # GCPL loss
+            loss = F.cross_entropy(-dist / self.temp, labels, reduction=reduction_final)
+            loss_r = F.mse_loss(feats, center_batch) / 2
+            loss = loss + self.weight_pl * loss_r
+        else:
+            # RPL loss
+            loss = F.cross_entropy(dist / self.temp, labels, reduction=reduction_final)
+            _dis = (feats - center_batch).pow(2).mean(1)
+            _dis_target = self.radius.to(dist.device).tile(_dis.size())
+            loss_r = F.mse_loss(_dis, _dis_target, reduction=reduction_final)
+            loss = loss + self.weight_pl * loss_r
         return loss

@@ -191,7 +191,7 @@ class MultiSegmentLoss(nn.Module):
         # classification loss in the coarse stage
         conf_p = conf_data.view(-1, num_classes)
         targets_conf = conf_t.view(-1, 1)
-        if self.cls_loss_type in ['focal', 'rpl']:
+        if self.cls_loss_type == 'focal':
             conf_p = F.softmax(conf_p, dim=1)
         if self.os_head:
             inds_keep = targets_conf > 0  # (N,1)
@@ -215,7 +215,7 @@ class MultiSegmentLoss(nn.Module):
         # classification loss in the refined stage
         prop_conf_p = prop_conf_data.view(-1, num_classes)
         prop_conf_t = prop_conf_t.view(-1, 1)
-        if self.cls_loss_type in ['focal', 'rpl']:
+        if self.cls_loss_type == 'focal':
             prop_conf_p = F.softmax(prop_conf_p, dim=1)
         if self.os_head:
             inds_keep = prop_conf_t > 0  # (N,1)

@@ -23,11 +23,11 @@ def get_path(input_path):
     return real_full_path
 
 
-def build_model(fusion=False, use_edl=False):
+def build_model(fusion=False, use_edl=False, use_rpl=False):
     net, flow_net = None, None
     if fusion:
-        rgb_net = BDNet(in_channels=3, training=False, use_edl=use_edl)
-        flow_net = BDNet(in_channels=2, training=False, use_edl=use_edl)
+        rgb_net = BDNet(in_channels=3, training=False, use_edl=use_edl, use_rpl=use_rpl)
+        flow_net = BDNet(in_channels=2, training=False, use_edl=use_edl, use_rpl=use_rpl)
         rgb_checkpoint_path = get_path(config['testing'].get('rgb_checkpoint_path',
                                             './models/thumos14/checkpoint-15.ckpt'))
         flow_checkpoint_path = get_path(config['testing'].get('flow_checkpoint_path',
@@ -39,7 +39,7 @@ def build_model(fusion=False, use_edl=False):
         net = rgb_net
     else:
         net = BDNet(in_channels=config['model']['in_channels'],
-                    training=False, use_edl=use_edl)
+                    training=False, use_edl=use_edl, use_rpl=use_rpl)
         checkpoint_path = get_path(config['testing']['checkpoint_path'])
         net.load_state_dict(torch.load(checkpoint_path))
         net.eval().cuda()
@@ -89,7 +89,7 @@ def prepare_anet_clip(data, offset, clip_length, crop_size):
     return clip
 
 
-def parse_output(output_dict, flow_output_dict=None, fusion=False, use_edl=False, os_head=False):
+def parse_output(output_dict, flow_output_dict=None, fusion=False, use_edl=False, os_head=False, use_gcpl=False):
     act, prop_act, unct, prop_unct = None, None, None, None
     loc, conf, priors = output_dict['loc'][0], output_dict['conf'][0], output_dict['priors']
     prop_loc, prop_conf = output_dict['prop_loc'][0], output_dict['prop_conf'][0]
@@ -98,6 +98,9 @@ def parse_output(output_dict, flow_output_dict=None, fusion=False, use_edl=False
     unct = output_dict['unct'][0] if use_edl else None
     prop_unct = output_dict['prop_unct'][0] if use_edl else None
     center = output_dict['center'][0]
+    if use_gcpl:
+        conf = -conf
+        prop_conf = -prop_conf
     if fusion:
         flow_loc, flow_conf, priors = flow_output_dict['loc'][0], flow_output_dict['conf'][0], flow_output_dict['priors']
         flow_prop_loc, flow_prop_conf = flow_output_dict['prop_loc'][0], flow_output_dict['prop_conf'][0]
@@ -250,7 +253,9 @@ def test(cfg, output_file):
 
         # post-processing
         for (output_dict, flow_output_dict, offset) in output_dict_all:
-            loc, conf, prop_loc, prop_conf, center, priors, unct, prop_unct, act, prop_act = parse_output(output_dict, flow_output_dict, fusion=cfg.fusion, use_edl=cfg.use_edl, os_head=cfg.os_head)
+            loc, conf, prop_loc, prop_conf, center, priors, unct, prop_unct, act, prop_act = parse_output(output_dict, flow_output_dict, \
+                fusion=cfg.fusion, use_edl=cfg.use_edl, os_head=cfg.os_head, use_gcpl=cfg.use_gcpl)
+            
             decoded_segments, conf_scores, uncertainty, actionness = decode_predictions(loc, prop_loc, priors, conf, prop_conf, unct, prop_unct, act, prop_act, \
                                                                 center, offset, sample_fps, cfg.clip_length, cfg.num_classes, score_func=out_layer, use_edl=cfg.use_edl, os_head=cfg.os_head)
             # filtering out clip-level predictions with low confidence
@@ -356,6 +361,8 @@ def get_basic_config(config):
     cfg.clip_length = config['dataset']['testing']['clip_length']
     cfg.stride = config['dataset']['testing']['clip_stride']
     cfg.crop_size = config['dataset']['testing']['crop_size']
+    cfg.use_rpl = config['model']['use_rpl'] if 'use_rpl' in config['model'] else False
+    cfg.use_gcpl = config['training']['rpl_config']['gcpl'] if cfg.use_rpl and 'gcpl' in config['training']['rpl_config'] else False
     cfg.use_edl = config['model']['use_edl'] if 'use_edl' in config['model'] else False
     if cfg.use_edl:
         cfg.evidence = config['model']['evidence']
