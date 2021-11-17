@@ -224,7 +224,7 @@ def test(cfg, output_file):
     class_range = range(1, cfg.num_classes) if not cfg.os_head else range(0, cfg.num_classes)
 
     # prepare model
-    net, flow_net = build_model(fusion=cfg.fusion)
+    net, flow_net = build_model(fusion=cfg.fusion, use_edl=cfg.use_edl, use_rpl=cfg.use_rpl)
     out_layer = DirichletLayer(evidence=cfg.evidence, dim=-1) if cfg.use_edl else nn.Softmax(dim=-1)
 
     centor_crop = videotransforms.CenterCrop(cfg.crop_size)
@@ -282,7 +282,7 @@ def test_anet(thumos_cfg, anet_cfg, anet_resfile):
     video_list = list(set(video_list) & set(videos_in_disk))
 
     # prepare model
-    net, flow_net = build_model(fusion=thumos_cfg.fusion, use_edl=thumos_cfg.use_edl)
+    net, flow_net = build_model(fusion=thumos_cfg.fusion, use_edl=thumos_cfg.use_edl, use_rpl=thumos_cfg.use_rpl)
     out_layer = DirichletLayer(evidence=thumos_cfg.evidence, dim=-1) if thumos_cfg.use_edl else nn.Softmax(dim=-1)
     center_crop = videotransforms.CenterCrop(thumos_cfg.crop_size)
     class_range = range(1, thumos_cfg.num_classes) if not thumos_cfg.os_head else range(0, thumos_cfg.num_classes)

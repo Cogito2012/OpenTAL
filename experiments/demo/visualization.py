@@ -2,6 +2,7 @@ import os, json
 import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import colorsys
 import random
 from AFSD.evaluation.utils_eval import segment_iou
@@ -84,39 +85,37 @@ def import_prediction(pred_file, video_list, activity_index, score_items=['uncer
 
 def retrieve_segments(data, video_name, type='gt'):
     idx = [i for i,x in enumerate(data['videos']) if x == video_name]
-    if type == 'gt':
-        segments, labels = [], []
-        if len(idx) > 0:
-            segments = [data['segments'][i] for i in idx]
-            labels = [data['labels'][i] for i in idx]
+    segments, labels, scores = [], [], []
+    if len(idx) > 0:
+        segments = [data['segments'][i] for i in idx]
+        labels = [data['labels'][i] for i in idx]
+        if type == 'pred_u':
+            scores = [data['scores']['uncertainty'][i] for i in idx]
+        elif type == 'pred_conf':
+            scores = [1 - data['scores']['confidence'][i] for i in idx]
         segments = np.array(segments)
-        return segments, labels
-    
-    if type == 'pred_ua':
-        segments, labels, uncertainty, actionness = [], [], [], []  
-        if len(idx) > 0: 
-            segments = [data['segments'][i] for i in idx]
-            labels = [data['labels'][i] for i in idx]
-            uncertainty = [data['scores']['uncertainty'][i] for i in idx]
-            actionness = [data['scores']['actionness'][i] for i in idx]
-        segments = np.array(segments)
-        return segments, labels, uncertainty, actionness
-    
-    if type == 'pred_conf':
-        segments, labels, confs = [], [], []
-        if len(idx) > 0: 
-            segments = [data['segments'][i] for i in idx]
-            labels = [data['labels'][i] for i in idx]
-            confs = [data['scores']['confidence'][i] for i in idx]
-        segments = np.array(segments)
-        return segments, labels, confs
+    return segments, labels, scores
 
 
-def clear_overlapping(actions):
-    # segments, labels, ious = np.array(actions['segments']), actions['labels'], actions['ious']
-    # for seg in segments:
-    #     self_ious = segment_iou(seg, segments)
-    return actions
+def match_preds_with_gt(segment_preds, label_preds, scores_pred, segment_gts, thresh=0.25, tiou_threshold=0.3):
+    actions_pred = {'segments': [], 'labels': []}
+    # match predictions with ground truth by tIoU
+    lock_gt = np.ones((len(segment_gts))) * -1
+    for idx, (seg, label, score) in enumerate(zip(segment_preds, label_preds, scores_pred)):
+        tiou_arr = segment_iou(seg, segment_gts)
+        tiou_sorted_idx = tiou_arr.argsort()[::-1]  # tIoU in a decreasing order
+        for jdx in tiou_sorted_idx:
+            if tiou_arr[jdx] < tiou_threshold:  # background segment
+                break
+        if lock_gt[jdx] >= 0:
+            continue  # this gt was matched before
+        # for positive localized actions
+        label = 'Unknown' if score > thresh else label
+        actions_pred['segments'].append(seg)
+        actions_pred['labels'].append(label)
+        lock_gt[jdx] = idx
+    return actions_pred
+
  
 def get_n_hls_colors(num):
     hls_colors = []
@@ -145,126 +144,140 @@ def ncolors(num):
 
 
 
-def draw_action_detections(fig_file, actions_pred, actions_gt, durations, cls_to_color, fontsize=18):
-    fig, axes = plt.subplots(2, 1, figsize=(15, 4), sharex=True)
+def draw_action_detections(fig_file, all_actions, actions_gt, durations, cls_to_color, fontsize=18, paper_format=False):
+    fig, axes = plt.subplots(1, 1, figsize=(15, 5), sharex=True)
+    plt.rcParams["font.family"] = "Arial"
+    video_height = 30
     video_len = 500  # pixels
+    offset = 5
+    line_color = (128, 138, 135)
     video_duration = durations[1] + 3  # seconds
     xlocs = np.arange(video_len+1, step=100)
-    xlabels = ['%.2f'%(loc / video_len * video_duration) for loc in xlocs]
-    # plot pred
-    video_bar = np.ones((30, video_len, 3), dtype=np.uint8) * 255
-    # texts = {'x': [], 'y': [], 'label': []}
-    for seg, label in zip(actions_pred['segments'], actions_pred['labels']):
-        start = int(video_len / video_duration * seg[0])
-        end = int(video_len / video_duration * seg[1])
-        color = cls_to_color[label] if label != 'Unknown' else (0, 0, 0)
-        video_bar[:, start: end + 1, :] = color
-        # texts['x'].append(int(video_len / video_duration * (seg[0] + 0.5)))
-        # texts['y'].append(25)
-        # texts['label'].append(label)
-    axes[0].imshow(video_bar)
-    axes[0].set_facecolor((1.0, 0.47, 0.42))
-    # axes[0].get_yaxis().set_visible(False)
-    axes[0].set_yticks([])
-    axes[0].set_xticks(xlocs)
-    axes[0].set_xticklabels(xlabels, fontsize=fontsize)
-    axes[0].set_ylabel('Prediction', fontsize=fontsize)
-    # # add labels
-    # for x, y, str in zip(texts['x'], texts['y'], texts['label']):
-    #     axes[0].text(x, y, str, fontsize=fontsize)
+    xlabels = ['%.1f'%(loc / video_len * video_duration) for loc in xlocs]
 
-    # plot gt
-    video_bar = np.ones((30, video_len, 3), dtype=np.uint8) * 255
+
+    fig_height = (video_height + offset + 2) * (len(all_actions) + 1)
+    video_bars = np.ones((fig_height, video_len, 3), dtype=np.uint8) * 255
+    # draw GT bar
+    r_start = 0
+    r_end = video_height
     for seg, label in zip(actions_gt['segments'], actions_gt['labels']):
-        start = int(video_len / video_duration * seg[0])
-        end = int(video_len / video_duration * seg[1])
+        c_start = int(video_len / video_duration * seg[0])
+        c_end = int(video_len / video_duration * seg[1])
         color = cls_to_color[label] if label in cls_to_color else (0, 0, 0)  # black: novel class
-        video_bar[:, start: end + 1, :] = color
-    axes[1].imshow(video_bar)
-    axes[1].set_facecolor((1.0, 0.47, 0.42))
-    # axes[1].get_yaxis().set_visible(False)
-    axes[1].set_yticks([])
-    axes[1].set_xticks(xlocs)
-    axes[1].set_xticklabels(xlabels, fontsize=fontsize)
-    axes[1].set_ylabel('Ground Truth', fontsize=fontsize)
+        video_bars[r_start: r_end, c_start: c_end + 1, :] = color
+    # draw upper and bottom lines
+    video_bars[r_start: r_start + 1, :, :] = line_color
+    video_bars[r_end: r_end + 1, :, :] = line_color
 
+    # draw Pred bars
+    for i, (method, actions_pred) in enumerate(all_actions.items()):
+        r_start += (video_height + offset)
+        r_end += (video_height + offset)
+        for seg, label in zip(actions_pred['segments'], actions_pred['labels']):
+            c_start = int(video_len / video_duration * seg[0])
+            c_end = int(video_len / video_duration * seg[1])
+            color = cls_to_color[label] if label != 'Unknown' else (0, 0, 0)
+            video_bars[r_start: r_end, c_start: c_end + 1, :] = color
+        # draw upper and bottom lines
+        video_bars[r_start: r_start + 1, :, :] = line_color
+        video_bars[r_end: r_end + 1, :, :] = line_color
+        
+    # visualize
+    axes.imshow(video_bars)
+    axes.set_facecolor((1.0, 0.47, 0.42))
+    axes.set_frame_on(False)
+    axes.get_xaxis().tick_bottom()
+    axes.get_yaxis().set_visible(False)
+    xmin, xmax = axes.get_xaxis().get_view_interval()
+    ymin, ymax = axes.get_yaxis().get_view_interval()
+    axes.add_artist(Line2D((xmin, xmax), (ymin, ymin), color='black', linewidth=2))
+    axes.set_yticks([])
+    axes.set_xticks(xlocs)
+    axes.set_xticklabels(xlabels, fontsize=fontsize)
+    # draw labels
+    r_center = int(video_height * 0.5)
+    left_border = -80
+    axes.text(left_border, r_center, 'Ground Truth', horizontalalignment='left', verticalalignment='center', fontsize=fontsize)
+    for i, method in enumerate(list(all_actions.keys())):
+        r_center += (video_height + offset)
+        axes.text(left_border, r_center, method, horizontalalignment='left', verticalalignment='center', fontsize=fontsize)
     plt.tight_layout()
     plt.savefig(fig_file)
+    if paper_format:
+        plt.savefig(fig_file[:-4] + '.pdf')
     plt.close()
 
 
 
-if __name__ == '__main__':
-    
+def main():
     split = '0'
-    exp_tag = 'opental_final'
+    exp_tags = ['softmax', 'open_edl', 'opental_final']
+    method_list = ['SoftMax', 'EDL', 'OpenTAL']
+    selected_images = ['video_test_0000039', 'video_test_0000379', 'video_test_0001081', 'video_test_0001468', 'video_test_0001484']
     tiou_threshold = 0.3
+    unct_threshold_custom = 0.25  # the best threshold
     random.seed(123)
     np.random.seed(123)
 
-    # prediction results
-    pred_file = f'output/{exp_tag}/split_{split}/thumos14_open_rgb.json'
-    gt_file = 'datasets/thumos14/annotations/thumos_gt.json'  # all videos (known + unknown)
-    known_class_file = f'datasets/thumos14/annotations_open/split_{split}/Class_Index_Known.txt'
     # save path
-    save_path = f'output/{exp_tag}/split_{split}/demos'
+    save_path = f'experiments/demo/vis_compare'
     os.makedirs(save_path, exist_ok=True)
 
     # # annotation infos
     # video_info_path = './datasets/thumos14/annotations_open/test_video_info.csv'
     # video_data_path = './datasets/thumos14/test_npy/'
 
-    # trainset_result = f'output/{exp_tag}/split_{split}/thumos14_open_trainset.json'
-    # unct_threshold = read_threshold(trainset_result)
-    unct_threshold = 0.25  # the best threshold
-
+    # GT annotations
+    gt_file = 'datasets/thumos14/annotations/thumos_gt.json'  # all videos (known + unknown)
+    # import ground truth and parse into segmental level dictionary
+    ground_truths, video_durations = import_ground_truth(gt_file)
+    video_list = list(set(ground_truths['videos']))
+    
     # import known actions
+    known_class_file = f'datasets/thumos14/annotations_open/split_{split}/Class_Index_Known.txt'
     activity_index = get_activity_index(known_class_file)
     colors = ncolors(len(activity_index))
     cls_to_color = {}
     for cls, idx in activity_index.items():
         cls_to_color[cls] = colors[idx]
 
-    # import ground truth and parse into segmental level dictionary
-    ground_truths, video_durations = import_ground_truth(gt_file)
-    video_list = list(set(ground_truths['videos']))
-
-    # import predictions according the GT videos
-    predictions = import_prediction(pred_file, video_list, activity_index, score_items=['uncertainty', 'actionness'])
-
+    all_predictions = {}
+    for method, tag in zip(method_list, exp_tags):
+        pred_file = f'output/{tag}/split_{split}/thumos14_open_rgb.json'
+        # import predictions according the GT videos
+        score_items = ['uncertainty'] if method in ['OpenTAL', 'EDL'] else ['confidence']
+        predictions = import_prediction(pred_file, video_list, activity_index, score_items=score_items)
+        # import the threshold from train set
+        trainset_result = f'output/{tag}/split_{split}/thumos14_open_trainset.json'
+        unct_threshold = unct_threshold_custom if method == 'OpenTAL' else read_threshold(trainset_result)
+        all_predictions[method] = {'pred': predictions, 'threshold': unct_threshold}
 
     # draw all validation videos
     for video_name in tqdm(video_list, total=len(video_list), desc='Creating Demos'):
-        # retrieve the predictions and ground truth of this video
-        segment_preds, label_preds, unct_preds, act_preds = retrieve_segments(predictions, video_name, type='pred_ua')
-        segment_gts, label_gts = retrieve_segments(ground_truths, video_name, type='gt')
-        durations = video_durations[video_name]
-        # # find the video with more than 1 class
-        # if len(list(set(label_gts))) == 1:
-        #     continue
-
-        actions_pred = {'segments': [], 'labels': [], 'uncts': [], 'acts': []}
-        ious_matched = []
-        # match predictions with ground truth by tIoU
-        lock_gt = np.ones((len(segment_gts))) * -1
-        for idx, (seg, label, unct, act) in enumerate(zip(segment_preds, label_preds, unct_preds, act_preds)):
-            tiou_arr = segment_iou(seg, segment_gts)
-            tiou_sorted_idx = tiou_arr.argsort()[::-1]  # tIoU in a decreasing order
-            for jdx in tiou_sorted_idx:
-                if tiou_arr[jdx] < tiou_threshold:  # background segment
-                    break
-            if lock_gt[jdx] >= 0:
-                continue  # this gt was matched before
-            # for positive localized actions
-            label = 'Unknown' if unct > unct_threshold else label
-
-            actions_pred['segments'].append(seg)
-            actions_pred['labels'].append(label)
-            ious_matched.append(tiou_arr[jdx])
-            lock_gt[jdx] = idx
-        # clean the detected overlapping actions 
-        actions_pred = clear_overlapping(actions_pred)
+        if video_name not in selected_images:
+            continue
+        # retrieve the ground truth of this video
+        segment_gts, label_gts, _ = retrieve_segments(ground_truths, video_name, type='gt')
         actions_gt = {'segments': segment_gts, 'labels': label_gts}
+        durations = video_durations[video_name]
+ 
+        # retrieve the predictions of this video for each method
+        all_actions = {}
+        for method in method_list:
+            type = 'pred_u' if method in ['OpenTAL', 'EDL'] else 'pred_conf'
+            segment_preds, label_preds, scores_pred = retrieve_segments(all_predictions[method]['pred'], video_name, type=type)
+            # match the predictions with GT
+            actions_pred = match_preds_with_gt(segment_preds, label_preds, scores_pred, segment_gts, \
+                thresh=all_predictions[method]['threshold'], tiou_threshold=tiou_threshold)
+            all_actions[method] = actions_pred
+        
         # draw figure
         fig_file = os.path.join(save_path, f'{video_name}.png')
-        draw_action_detections(fig_file, actions_pred, actions_gt, durations, cls_to_color)
+        draw_action_detections(fig_file, all_actions, actions_gt, durations, cls_to_color, fontsize=22, paper_format=True)
+
+
+
+if __name__ == '__main__':
+    
+    main()

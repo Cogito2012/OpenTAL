@@ -6,6 +6,7 @@ cuhk-val/*
 *logs
 model.txt
 experiments/figs
+experiments/demo
 *backup*
 
 # ignored files
