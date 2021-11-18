@@ -9,7 +9,7 @@ from AFSD.common import videotransforms
 from AFSD.common.thumos_dataset import get_video_info, get_video_anno, get_class_index_map
 from AFSD.common.config import config
 from AFSD.thumos14.BDNet import BDNet
-from test_openmax import compute_mav_dist, files_are_ready, weibull_fitting, decode_output, filtering, get_video_detections
+from test_openmax import compute_mav_dist, files_are_ready, weibull_fitting, decode_output, filtering, get_video_detections, get_offsets
 from openmax import OpenMax
 
 
@@ -23,7 +23,7 @@ def get_path(input_path):
     return real_full_path
 
         
-def get_offsets(sample_count, clip_length, stride):
+def get_anet_offsets(sample_count, clip_length, stride):
     if sample_count < clip_length:
         offsetlist = [0]
     else:
@@ -74,7 +74,7 @@ def test(cfg, output_file):
     center_crop = videotransforms.CenterCrop(cfg.crop_size)
     
     result_dict = {}
-    for video_name in tqdm.tqdm(list(cfg.video_info_test.keys()), ncols=0):
+    for video_name in tqdm(list(cfg.video_info_test.keys()), ncols=0):
         # get the clip offsets
         offsetlist = get_offsets(cfg.video_info_test, video_name, cfg.clip_length, cfg.stride)
         sample_fps = cfg.video_info_test[video_name]['sample_fps']
@@ -132,7 +132,7 @@ def test_anet(thumos_cfg, anet_cfg, anet_resfile):
         sample_fps = anet_cfg.video_infos[video_name]['fps']
         duration = anet_cfg.video_infos[video_name]['duration']
         frame_count = anet_cfg.video_infos[video_name]['frame_num']
-        offsetlist = get_offsets(frame_count, thumos_cfg.clip_length, thumos_cfg.stride)
+        offsetlist = get_anet_offsets(frame_count, thumos_cfg.clip_length, thumos_cfg.stride)
 
         # load data
         data = prepare_data(anet_cfg.mp4_data_path, video_name, center_crop)  # (3, 768, 96, 96)
@@ -163,7 +163,7 @@ def test_anet(thumos_cfg, anet_cfg, anet_resfile):
                 output['feat'][cl].append(out['feat'])
                 output['prop_feat'][cl].append(out['prop_feat'])
         # get final detection results for each video
-        result_dict[video_name] = get_video_detections(output, thumos_cfg)
+        result_dict[video_name[2:]] = get_video_detections(output, thumos_cfg)
 
     output_dict = {"version": "THUMOS14", "results": dict(result_dict), "external_data": {}}
     with open(anet_resfile, "w") as out:

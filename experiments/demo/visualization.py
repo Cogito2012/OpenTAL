@@ -212,11 +212,12 @@ def draw_action_detections(fig_file, all_actions, actions_gt, durations, cls_to_
 
 def main():
     split = '0'
-    exp_tags = ['softmax', 'open_edl', 'opental_final']
-    method_list = ['SoftMax', 'EDL', 'OpenTAL']
+    exp_tags = ['softmax', 'openmax', 'open_edl', 'opental_final']
+    method_list = ['SoftMax', 'OpenMax', 'EDL', 'OpenTAL']
     selected_images = ['video_test_0000039', 'video_test_0000379', 'video_test_0001081', 'video_test_0001468', 'video_test_0001484']
     tiou_threshold = 0.3
-    unct_threshold_custom = 0.25  # the best threshold
+    unct_threshold_opental = 0.25  # the best threshold
+    unct_threshold_openmax = 0.995  # the best threshold
     random.seed(123)
     np.random.seed(123)
 
@@ -250,7 +251,12 @@ def main():
         predictions = import_prediction(pred_file, video_list, activity_index, score_items=score_items)
         # import the threshold from train set
         trainset_result = f'output/{tag}/split_{split}/thumos14_open_trainset.json'
-        unct_threshold = unct_threshold_custom if method == 'OpenTAL' else read_threshold(trainset_result)
+        if method == 'OpenTAL':
+            unct_threshold = unct_threshold_opental 
+        elif method == 'OpenMax':
+            unct_threshold = unct_threshold_openmax
+        else:
+            unct_threshold = read_threshold(trainset_result)
         all_predictions[method] = {'pred': predictions, 'threshold': unct_threshold}
 
     # draw all validation videos

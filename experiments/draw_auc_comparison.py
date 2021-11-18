@@ -79,24 +79,25 @@ def draw_PR_curve():
 
 if __name__ == '__main__':
 
-    labels = ['OpenTAL', 'EDL', 'SoftMax']
-    result_folders = ['opental_final', 'open_edl', 'softmax']
+    labels = ['OpenTAL', 'EDL', 'OpenMax', 'SoftMax']
+    result_folders = ['opental_final', 'open_edl', 'openmax', 'softmax']
     # split = '2'
+    all_splits = ['0', '1', '2']
     tiou_target = 0.3
-    line_styles = ['r-', 'g-', 'b-']
+    line_styles = ['r-', 'g-', 'c-', 'b-']
     fontsize = 22
     fig_path = 'experiments/figs'
     os.makedirs(fig_path, exist_ok=True)
 
     # draw ROC Curve
-    for split in ['0', '1', '2']:
+    for split in all_splits:
         draw_ROC_curve(split)
 
     # # draw PR Curve
     # draw_PR_curve()
 
     # draw OSDR Curve
-    for split in ['0', '1', '2']:
+    for split in all_splits:
         draw_OSDR_curve(split)
 
     plt.figure(figsize=(10, 4))
