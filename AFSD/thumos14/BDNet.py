@@ -292,7 +292,7 @@ class CoarsePyramid(nn.Module):
             )
             t = t // 2
 
-    def forward(self, feat_dict, ssl=False):
+    def forward(self, feat_dict, ssl=False, get_feat=False):
         pyramid_feats = []
         locs = []
         confs = []
@@ -301,7 +301,7 @@ class CoarsePyramid(nn.Module):
         prop_locs = []
         prop_confs = []
         prop_acts = []
-        if self.use_rpl:
+        if self.use_rpl or get_feat:
             ctr_feats, prop_ctr_feats = [], []
         trip = []
         x2 = feat_dict['Mixed_5c']
@@ -340,7 +340,7 @@ class CoarsePyramid(nn.Module):
                     .permute(0, 2, 1).contiguous()
             )
             head_input = F.dropout(conf_feat, p=self.dropout) if self.dropout > 0 else conf_feat
-            if self.use_rpl:
+            if self.use_rpl or get_feat:
                 ctr_feats.append(head_input)
             confs.append(
                 self.conf_head(head_input).view(batch_num, self.num_classes, -1)
@@ -399,7 +399,7 @@ class CoarsePyramid(nn.Module):
             prop_locs.append(self.prop_loc_head(loc_prop_feat).view(batch_num, 2, -1)
                              .permute(0, 2, 1).contiguous())
             head_input = F.dropout(conf_prop_feat, p=self.dropout) if self.dropout > 0 else conf_prop_feat
-            if self.use_rpl:
+            if self.use_rpl or get_feat:
                 prop_ctr_feats.append(head_input)
             prop_confs.append(self.prop_conf_head(head_input).view(batch_num, self.num_classes, -1)
                               .permute(0, 2, 1).contiguous())
@@ -425,7 +425,7 @@ class CoarsePyramid(nn.Module):
             prop_act = torch.cat([o.view(batch_num, -1, 1) for o in prop_acts], 1)  # (1, 126, 1)
         outs += (act, prop_act)
         ctr_feat, prop_ctr_feat = None, None
-        if self.use_rpl:
+        if self.use_rpl or get_feat:
             ctr_feat = torch.cat([o.permute(0, 2, 1).contiguous().view(batch_num, -1, conv_channels) for o in ctr_feats], 1)  # (B, T, D)
             prop_ctr_feat = torch.cat([o.permute(0, 2, 1).contiguous().view(batch_num, -1, conv_channels) for o in prop_ctr_feats], 1)  # (B, T, D)
         outs += (ctr_feat, prop_ctr_feat)
@@ -476,7 +476,7 @@ class BDNet(nn.Module):
         for i, m in enumerate(self.modules()):
             self.weight_init(m)
 
-    def forward(self, x, proposals=None, ssl=False):
+    def forward(self, x, proposals=None, ssl=False, get_feat=False):
         # x should be [B, C, 256, 96, 96] for THUMOS14
         feat_dict = self.backbone(x)
         if ssl:
@@ -504,7 +504,7 @@ class BDNet(nn.Module):
         else:
             loc, conf, prop_loc, prop_conf, center, priors, start, end, \
             start_loc_prop, end_loc_prop, start_conf_prop, end_conf_prop, act, prop_act, ctr_feat, prop_ctr_feat = \
-                self.coarse_pyramid_detection(feat_dict)
+                self.coarse_pyramid_detection(feat_dict, get_feat=get_feat)
             out_dict = {
                     'loc': loc,
                     'conf': conf,
@@ -530,6 +530,8 @@ class BDNet(nn.Module):
                 prop_cls_centers = self.coarse_pyramid_detection.prop_conf_head.centers  # (K+1, D)
                 out_dict.update({'cls_ctr': cls_centers, 'prop_cls_ctr': prop_cls_centers,
                                 'ctr_feat': ctr_feat, 'prop_ctr_feat': prop_ctr_feat})
+            if get_feat and not self.training:
+                out_dict.update({'conf_feat': ctr_feat, 'prop_conf_feat': prop_ctr_feat})
             return out_dict
 
 

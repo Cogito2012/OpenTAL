@@ -125,7 +125,7 @@ def nms(segments, overlap=0.5, top_k=1000):
     return keep, count
 
 
-def softnms_v2(segments, sigma=0.5, top_k=1000, score_threshold=0.001, use_edl=False, os_head=False):
+def softnms_v2(segments, sigma=0.5, top_k=1000, score_threshold=0.001, use_edl=False, os_head=False, get_mask=False):
     segments = segments.cpu()
     tstart = segments[:, 0]
     tend = segments[:, 1]
@@ -157,6 +157,8 @@ def softnms_v2(segments, sigma=0.5, top_k=1000, score_threshold=0.001, use_edl=F
     segments = torch.stack([tstart[done_mask], tend[done_mask], tscore[done_mask]], -1)
     if rest_cols is not None:
         segments = torch.cat([segments, rest_cols[done_mask]], -1)
+    if get_mask:
+        return segments, count, done_mask
     return segments, count
 
 

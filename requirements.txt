@@ -10,3 +10,4 @@ tensorboard
 matplotlib
 sklearn
 seaborn
+Cython
