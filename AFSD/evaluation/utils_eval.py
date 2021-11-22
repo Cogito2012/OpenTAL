@@ -112,9 +112,9 @@ def open_set_detection_rate(preds, pred_cls, gt_cls):
         CC = s_k_target[k+1:].sum()
         FP = s_u_target[k:].sum()
         # True	Positive Rate
-        CCR[k] = float(CC) / float(len(x1))  # fraction of correct classification in known preds
+        CCR[k] = float(CC) / float(len(x1)) if len(x1) > 0 else 1.0  # fraction of correct classification in known preds
         # False Positive Rate
-        FPR[k] = float(FP) / float(len(x2))  # fraction of unknown preds that are classified as any known
+        FPR[k] = float(FP) / float(len(x2)) if len(x2) > 0 else 0.0 # fraction of unknown preds that are classified as any known
     
     # extreme cases
     CCR[n] = 0.0

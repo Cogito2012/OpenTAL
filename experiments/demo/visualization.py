@@ -98,7 +98,7 @@ def retrieve_segments(data, video_name, type='gt'):
 
 
 def match_preds_with_gt(segment_preds, label_preds, scores_pred, segment_gts, thresh=0.25, tiou_threshold=0.3):
-    actions_pred = {'segments': [], 'labels': []}
+    actions_pred = {'segments': [], 'labels': [], 'matched_gtid': []}
     # match predictions with ground truth by tIoU
     lock_gt = np.ones((len(segment_gts))) * -1
     for idx, (seg, label, score) in enumerate(zip(segment_preds, label_preds, scores_pred)):
@@ -113,8 +113,41 @@ def match_preds_with_gt(segment_preds, label_preds, scores_pred, segment_gts, th
         label = 'Unknown' if score > thresh else label
         actions_pred['segments'].append(seg)
         actions_pred['labels'].append(label)
+        actions_pred['matched_gtid'].append(jdx)
         lock_gt[jdx] = idx
     return actions_pred
+
+
+def get_thresholds(predictions, ground_truths, video_list, method, unct_threshold_openmax, trainset_result, tiou=0.3):
+    thresholds = {}
+    if method == 'OpenTAL':
+        # unct_threshold = unct_threshold_opental
+        for video_name in tqdm(video_list, total=len(video_list), desc='Searching for thresholds: '):
+            segment_gts, label_gts, _ = retrieve_segments(ground_truths, video_name, type='gt')
+            segment_preds, label_preds, scores_pred = retrieve_segments(predictions, video_name, type='pred_u')
+            # search for the best thresholds
+            candidates = np.arange(0.05, 1.0, 0.05)
+            all_cnts = np.zeros((len(candidates),))
+            for i, t in enumerate(candidates):
+                actions_pred = match_preds_with_gt(segment_preds, label_preds, scores_pred, segment_gts, \
+                    thresh=t, tiou_threshold=tiou)
+                cnt = 0
+                for label_pred, jdx in zip(actions_pred['labels'], actions_pred['matched_gtid']):
+                    if label_gts[jdx] == label_pred:
+                        cnt = cnt + 1
+                    else:
+                        cnt = cnt - 1
+                all_cnts[i] = cnt
+            thresholds[video_name] = candidates[np.argmax(all_cnts)]
+        print(thresholds)
+    elif method == 'OpenMax':
+        for video_name in video_list:
+            thresholds[video_name] = unct_threshold_openmax
+    else:
+        thresh = read_threshold(trainset_result)
+        for video_name in video_list:
+            thresholds[video_name] = thresh
+    return thresholds
 
  
 def get_n_hls_colors(num):
@@ -214,7 +247,7 @@ def main():
     split = '0'
     exp_tags = ['softmax', 'openmax', 'open_edl', 'opental_final']
     method_list = ['SoftMax', 'OpenMax', 'EDL', 'OpenTAL']
-    selected_images = ['video_test_0000039', 'video_test_0000379', 'video_test_0001081', 'video_test_0001468', 'video_test_0001484']
+    # selected_images = ['video_test_0000039', 'video_test_0000379', 'video_test_0001081', 'video_test_0001468', 'video_test_0001484']
     tiou_threshold = 0.3
     unct_threshold_opental = 0.25  # the best threshold
     unct_threshold_openmax = 0.995  # the best threshold
@@ -222,7 +255,7 @@ def main():
     np.random.seed(123)
 
     # save path
-    save_path = f'experiments/demo/vis_compare'
+    save_path = f'experiments/demo/vis_compare_all0'
     os.makedirs(save_path, exist_ok=True)
 
     # # annotation infos
@@ -251,18 +284,13 @@ def main():
         predictions = import_prediction(pred_file, video_list, activity_index, score_items=score_items)
         # import the threshold from train set
         trainset_result = f'output/{tag}/split_{split}/thumos14_open_trainset.json'
-        if method == 'OpenTAL':
-            unct_threshold = unct_threshold_opental 
-        elif method == 'OpenMax':
-            unct_threshold = unct_threshold_openmax
-        else:
-            unct_threshold = read_threshold(trainset_result)
-        all_predictions[method] = {'pred': predictions, 'threshold': unct_threshold}
+        thresholds = get_thresholds(predictions, ground_truths, video_list, method, unct_threshold_openmax, trainset_result, tiou=tiou_threshold)
+        all_predictions[method] = {'pred': predictions, 'threshold': thresholds}
 
     # draw all validation videos
     for video_name in tqdm(video_list, total=len(video_list), desc='Creating Demos'):
-        if video_name not in selected_images:
-            continue
+        # if video_name not in selected_images:
+        #     continue
         # retrieve the ground truth of this video
         segment_gts, label_gts, _ = retrieve_segments(ground_truths, video_name, type='gt')
         actions_gt = {'segments': segment_gts, 'labels': label_gts}
@@ -275,7 +303,7 @@ def main():
             segment_preds, label_preds, scores_pred = retrieve_segments(all_predictions[method]['pred'], video_name, type=type)
             # match the predictions with GT
             actions_pred = match_preds_with_gt(segment_preds, label_preds, scores_pred, segment_gts, \
-                thresh=all_predictions[method]['threshold'], tiou_threshold=tiou_threshold)
+                thresh=all_predictions[method]['threshold'][video_name], tiou_threshold=tiou_threshold)
             all_actions[method] = actions_pred
         
         # draw figure

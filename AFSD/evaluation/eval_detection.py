@@ -262,20 +262,16 @@ class ANETdetection(object):
 
     def wrapper_compute_auc_scores(self):
         pred_scores, pred_labels, gt_labels = self.eval_data
-        au_roc, au_pr, _, _ = compute_auc_scores(pred_scores, gt_labels, tiou_thresholds=self.tiou_thresholds)
+        au_roc, au_pr, roc_data, pr_data = compute_auc_scores(pred_scores, gt_labels, tiou_thresholds=self.tiou_thresholds, vis=self.draw_auc)
         if self.draw_auc:
-            pred_scores, pred_labels, gt_labels = self.draw_data
-            _, _, roc_data, pr_data = compute_auc_scores(pred_scores, gt_labels, tiou_thresholds=[0.3, 0.4, 0.5], vis=True)
             save_curve_data(roc_data, pr_data, self.curve_data_path, vis=True)
         return au_roc, au_pr
 
     
     def wrapper_compute_osdr_scores(self):
         pred_scores, pred_labels, gt_labels = self.eval_data
-        osdr, _ = compute_osdr_scores(pred_scores, pred_labels, gt_labels, tiou_thresholds=self.tiou_thresholds)
+        osdr, osdr_data = compute_osdr_scores(pred_scores, pred_labels, gt_labels, tiou_thresholds=self.tiou_thresholds, vis=self.draw_auc)
         if self.draw_auc:
-            pred_scores, pred_labels, gt_labels = self.draw_data
-            _, osdr_data = compute_osdr_scores(pred_scores, pred_labels, gt_labels, tiou_thresholds=[0.3, 0.4, 0.5], vis=True)
             save_curve_osdr_data(osdr_data, self.curve_data_path, vis=True)
         return osdr
 
@@ -297,9 +293,6 @@ class ANETdetection(object):
         unique_videos = list(set(self.video_lst))
         print('For evaluating AUC curves...')
         self.eval_data = split_results_by_gt(self.prediction, self.ground_truth, unique_videos, tiou_thresholds=self.tiou_thresholds)
-        if self.draw_auc:
-            print('For drawing AUC curves...')
-            self.draw_data = split_results_by_gt(self.prediction, self.ground_truth, unique_videos, tiou_thresholds=[0.3, 0.4, 0.5])
 
 
     def evaluate(self, type='AP'):
@@ -434,7 +427,7 @@ def split_results_by_gt(prediction_all, ground_truth_all, video_list, tiou_thres
         prediction = _get_predictions_with_vid(prediction_by_vid, video_name)
         if prediction.empty:
             continue
-        lock_gt = np.ones((len(ground_truth))) * -1
+        lock_gt = np.ones((len(tiou_thresholds), len(ground_truth))) * -1
         for idx, this_pred in prediction.iterrows():
             ood_score = this_pred['ood_score']  # high value indicates unknown class
             label_pred = this_pred['label']  # all predicted classes are known classes without using threshold here!
@@ -448,7 +441,7 @@ def split_results_by_gt(prediction_all, ground_truth_all, video_list, tiou_thres
                         pred_labels[tidx]['bg'].append(label_pred)
                         gt_labels[tidx]['bg'].append(-1.0)  # -1: bg
                         break
-                    if lock_gt[jdx] >= 0:
+                    if lock_gt[tidx, jdx] >= 0:
                         continue  # this gt was matched before, continue to select the second largest tIoU match
                     label_gt = int(ground_truth.loc[jdx]['label'])
                     if label_gt == 0: # unknown foreground
@@ -459,7 +452,7 @@ def split_results_by_gt(prediction_all, ground_truth_all, video_list, tiou_thres
                         pred_scores[tidx]['known'].append(ood_score)
                         pred_labels[tidx]['known'].append(label_pred)
                         gt_labels[tidx]['known'].append(label_gt)  # >0: known
-                    lock_gt[jdx] = idx
+                    lock_gt[tidx, jdx] = idx
                     break
     return pred_scores, pred_labels, gt_labels
 

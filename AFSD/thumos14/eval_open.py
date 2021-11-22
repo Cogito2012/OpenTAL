@@ -17,7 +17,10 @@ parser.add_argument('--dataset', type=str, default='thumos14', choices=['thumos1
 parser.add_argument('--ood_scoring', type=str, default='confidence', choices=['uncertainty', 'confidence', 'uncertainty_actionness', 'a_by_inv_u', 'u_by_inv_a', 'half_au'])
 args = parser.parse_args()
 
-tious = [0.3, 0.4, 0.5, 0.6, 0.7]
+if args.dataset == 'thumos_anet':
+    tious = np.linspace(0.5, 0.95, 10)
+else:
+    tious = [0.3, 0.4, 0.5, 0.6, 0.7]
 
 subset = ['test']
 if args.dataset == 'thumos_anet':
