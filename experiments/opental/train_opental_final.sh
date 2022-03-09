@@ -3,7 +3,7 @@
 pwd_dir=$pwd
 cd ../../
 
-source activate afsd
+source activate opental
 python setup.py develop
 
 GPU_ID=$1

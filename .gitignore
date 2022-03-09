@@ -7,7 +7,14 @@ cuhk-val/*
 model.txt
 experiments/figs
 experiments/demo
+experiments/anet_*
+experiments/demo/search_param.sh
+experiments/ablations
+experiments/gcpl
+experiments/rpl
 *backup*
+attn.py
+
 
 # ignored files
 .DS_Store

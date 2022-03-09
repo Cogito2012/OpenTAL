@@ -27,11 +27,11 @@ if args.dataset == 'thumos_anet':
     subset = ['test', 'validation']
 
 
-def write_eval_open(eval_file, tious, auc_ROC, auc_PR, OSDR):
+def write_eval_open(eval_file, tious, far_95, auc_ROC, auc_PR, OSDR):
     with open(eval_file, 'w') as f:
-        for (tiou, auc_roc, auc_pr, osdr) in zip(tious, auc_ROC, auc_PR, OSDR):
-            f.writelines(f"tIoU={tiou}: auc_roc={auc_roc:.5f}, auc_pr={auc_pr:.5f}, osdr={osdr:.5f}\n")
-        f.writelines(f"Average AUC_ROC: {auc_ROC.mean():.5f}, Average AUC_PR: {auc_PR.mean():.5f}, Average OSDR: {OSDR.mean():.5f}\n")
+        for (tiou, far, auc_roc, auc_pr, osdr) in zip(tious, far_95, auc_ROC, auc_PR, OSDR):
+            f.writelines(f"tIoU={tiou}: far@95={far:.5f}, auc_roc={auc_roc:.5f}, auc_pr={auc_pr:.5f}, osdr={osdr:.5f}\n")
+        f.writelines(f"Average FAR@95: {far_95.mean():.5f}, Average AUC_ROC: {auc_ROC.mean():.5f}, Average AUC_PR: {auc_PR.mean():.5f}, Average OSDR: {OSDR.mean():.5f}\n")
 
 
 def write_eval_closed(eval_file, tious, mAPs):
@@ -42,6 +42,7 @@ def write_eval_closed(eval_file, tious, mAPs):
 
 
 mAPs_all, average_mAP_all = [], []
+far95s_all, average_far95_all = [], []
 aucROCs_all, average_aucROC_all = [], []
 aucPRs_all, average_aucPR_all = [], []
 OSDR_all, average_OSDR_all = [], []
@@ -68,15 +69,18 @@ for split in args.all_splits:
 
     # run evaluation
     if args.open_set:
+        print(f'Parsing results of split {split}...')
         anet_detection.pre_evaluate()
         # evaluate AUC of ROC and PR
-        auc_ROC, auc_PR = anet_detection.evaluate(type='AUC')
+        auc_ROC, auc_PR, far_95 = anet_detection.evaluate(type='AUC')
         # evaluate auc of OSDR
         OSDR = anet_detection.evaluate(type='OSDR')
         # # evaluate the Wilderness Impact
         # mWIs, average_mWI, wi = anet_detection.evaluate(type='WI')
         # with open(os.path.join(os.path.dirname(pred_file), 'open_stats.pkl'), 'wb') as f:
         #     pickle.dump(anet_detection.stats, f, pickle.HIGHEST_PROTOCOL)
+        far95s_all.append(far_95)
+        average_far95_all.append(far_95.mean())
         aucROCs_all.append(auc_ROC)
         average_aucROC_all.append(auc_ROC.mean())
         aucPRs_all.append(auc_PR)
@@ -85,7 +89,7 @@ for split in args.all_splits:
         average_OSDR_all.append(OSDR.mean())
         # output
         eval_file = os.path.join(os.path.dirname(pred_file), 'eval_open.txt')
-        write_eval_open(eval_file, tious, auc_ROC, auc_PR, OSDR)
+        write_eval_open(eval_file, tious, far_95, auc_ROC, auc_PR, OSDR)
     else:
         mAPs, average_mAP, ap = anet_detection.evaluate(type='AP')
         mAPs_all.append(mAPs)
@@ -102,6 +106,9 @@ def get_mean_std(data, axis=0):
     return mean, std
 
 if args.open_set:
+    # print the averaged results of FAR@95
+    far95s_mean, far95s_std = get_mean_std(far95s_all, axis=0)
+    average_far95_mean, average_far95_std = get_mean_std(average_far95_all, axis=0)
     # print the averaged results of auc_ROC
     aucROCs_mean, aucROCs_std = get_mean_std(aucROCs_all, axis=0)
     average_aucROC_mean, average_aucROC_std = get_mean_std(average_aucROC_all, axis=0)
@@ -111,6 +118,10 @@ if args.open_set:
     # print the averaged results of OSDR
     osdr_mean, osdr_std = get_mean_std(OSDR_all, axis=0)
     average_OSDR_mean, average_OSDR_std = get_mean_std(average_OSDR_all, axis=0)
+
+    for (tiou, mean, std) in zip(tious, far95s_mean, far95s_std):
+        print(f"FAR@95(tIoU={tiou}): mean={mean:.5f}, std={std:.5f}")
+    print(f"Average FAR@95 = {average_far95_mean:.5f} ({average_far95_std:.5f})\n")
 
     for (tiou, mean, std) in zip(tious, aucROCs_mean, aucROCs_std):
         print(f"AUC_ROC(tIoU={tiou}): mean={mean:.5f}, std={std:.5f}")

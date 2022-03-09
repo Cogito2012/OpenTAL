@@ -262,10 +262,10 @@ class ANETdetection(object):
 
     def wrapper_compute_auc_scores(self):
         pred_scores, pred_labels, gt_labels = self.eval_data
-        au_roc, au_pr, roc_data, pr_data = compute_auc_scores(pred_scores, gt_labels, tiou_thresholds=self.tiou_thresholds, vis=self.draw_auc)
+        au_roc, au_pr, far_95, roc_data, pr_data = compute_auc_scores(pred_scores, gt_labels, tiou_thresholds=self.tiou_thresholds, vis=self.draw_auc)
         if self.draw_auc:
             save_curve_data(roc_data, pr_data, self.curve_data_path, vis=True)
-        return au_roc, au_pr
+        return au_roc, au_pr, far_95
 
     
     def wrapper_compute_osdr_scores(self):
@@ -291,7 +291,6 @@ class ANETdetection(object):
 
     def pre_evaluate(self):
         unique_videos = list(set(self.video_lst))
-        print('For evaluating AUC curves...')
         self.eval_data = split_results_by_gt(self.prediction, self.ground_truth, unique_videos, tiou_thresholds=self.tiou_thresholds)
 
 
@@ -306,8 +305,8 @@ class ANETdetection(object):
             self.average_mAP = self.mAP.mean()
             return self.mAP, self.average_mAP, self.ap
         elif type == 'AUC':
-            self.au_roc, self.au_pr = self.wrapper_compute_auc_scores()
-            return self.au_roc, self.au_pr
+            self.au_roc, self.au_pr, self.far_95 = self.wrapper_compute_auc_scores()
+            return self.au_roc, self.au_pr, self.far_95
         elif type == 'OSDR':
             self.osdr = self.wrapper_compute_osdr_scores()
             return self.osdr
@@ -422,7 +421,7 @@ def split_results_by_gt(prediction_all, ground_truth_all, video_list, tiou_thres
     pred_scores = [{'bg': [], 'known': [], 'unknown': []} for _ in tiou_thresholds]
     pred_labels = [{'bg': [], 'known': [], 'unknown': []} for _ in tiou_thresholds]
     gt_labels = [{'bg': [], 'known': [], 'unknown': []} for _ in tiou_thresholds]
-    for video_name in tqdm(video_list, total=len(video_list), desc='Compute AUC', position=0, leave=True):
+    for video_name in tqdm(video_list, total=len(video_list), desc='Parsing results', position=0, leave=True):
         ground_truth = ground_truth_by_vid.get_group(video_name).reset_index()
         prediction = _get_predictions_with_vid(prediction_by_vid, video_name)
         if prediction.empty:
@@ -463,6 +462,7 @@ def compute_auc_scores(pred_scores, gt_labels, tiou_thresholds=np.linspace(0.5, 
     # compute the AUC of PR and ROC curves between known and unknown
     auc_pr = np.zeros((len(tiou_thresholds),), dtype=np.float32)
     auc_roc = np.zeros((len(tiou_thresholds),), dtype=np.float32)
+    far_95 = np.zeros((len(tiou_thresholds),), dtype=np.float32)
     roc_data = {'fpr': [], 'tpr': [], 'auc': [], 'tiou': []} if vis else None
     pr_data = {'recall': [], 'precision': [], 'auc': [], 'tiou': []} if vis else None
     for tidx, tiou in enumerate(tiou_thresholds):
@@ -472,9 +472,11 @@ def compute_auc_scores(pred_scores, gt_labels, tiou_thresholds=np.linspace(0.5, 
         if len(preds) > 0 and len(labels) > 0:
             auc_pr[tidx] = average_precision_score(labels, preds)  # note that this is interpolated approximation of precision_recall_curve() + auc()
             auc_roc[tidx] = roc_auc_score(labels, preds) if len(list(set(labels))) > 1 else 0  # at least there should be two classes
+            fpr, tpr, _ = roc_curve(labels, preds, pos_label=1)
+            operation_idx = np.abs(tpr - 0.95).argmin()
+            far_95[tidx] = fpr[operation_idx]
             if vis:
                 # draw AUC_ROC curves
-                fpr, tpr, _ = roc_curve(labels, preds, pos_label=1)
                 roc_data['fpr'].append(fpr)
                 roc_data['tpr'].append(tpr)
                 roc_data['auc'].append(auc_roc[tidx])
@@ -485,7 +487,7 @@ def compute_auc_scores(pred_scores, gt_labels, tiou_thresholds=np.linspace(0.5, 
                 pr_data['recall'].append(recall)
                 pr_data['auc'].append(auc_pr[tidx])
                 pr_data['tiou'].append(tiou)
-    return auc_roc, auc_pr, roc_data, pr_data
+    return auc_roc, auc_pr, far_95, roc_data, pr_data
 
 
 

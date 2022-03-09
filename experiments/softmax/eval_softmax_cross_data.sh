@@ -3,7 +3,7 @@
 pwd_dir=$pwd
 cd ../../
 
-source activate afsd
+source activate opental
 python setup.py develop
 
 ALL_SPLITS="0 1 2"
