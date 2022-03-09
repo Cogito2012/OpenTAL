@@ -3,7 +3,7 @@
 pwd_dir=$pwd
 cd ../
 
-source activate afsd
+source activate opental
 
 GPU_ID=$1
 
