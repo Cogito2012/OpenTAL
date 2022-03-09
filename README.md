@@ -1,5 +1,5 @@
 # OpenTAL: Towards Open Set Temporal Action Localization
-[Project]() **|** [Paper & Supp]() **|** [Presentation]()
+[Project](https://www.rit.edu/actionlab/opental) **|** [Paper & Supp]() **|** [Presentation]()
 
 [Wentao Bao](https://cogito2012.github.io/homepage), 
 [Qi Yu](https://www.rit.edu/mining/qi-yu), 
@@ -29,7 +29,7 @@ The following figure shows an overview of our proposed OpenTAL method.
 
 ## Getting Started
 
-This repo is developed mainly referring the [AFSD (CVPR 2021)](https://github.com/TencentYoutuResearch/ActionDetection-AFSD) from Tencent YouTu Research. Most installations and data preparation steps are kept unchanged.
+This repo is developed mainly referring to the [AFSD (CVPR 2021)](https://github.com/TencentYoutuResearch/ActionDetection-AFSD), a great TAL work from Tencent YouTu Research. Most installations and data preparation steps are kept unchanged.
 ### Environment
 - Python 3.7
 - PyTorch == 1.9.0
@@ -37,11 +37,12 @@ This repo is developed mainly referring the [AFSD (CVPR 2021)](https://github.co
 
 ### Setup
 ```shell script
-# create conda virtual environment
+# create & activate a conda virtual environment
 conda create -n opental python=3.7 
+conda activate opental
 
 # install pytorch and cudatoolkit (take pytorch 1.9 as an example)
-conda install pytorch=1.9.0 torchvision=0.10.0 torchtext cudatoolkit-dev -c pytorch -c conda-forge
+conda install pytorch=1.9.0 torchvision=0.10.0 cudatoolkit-dev -c pytorch -c conda-forge
 
 # install other python libs.
 pip install -r requirements.txt
@@ -50,55 +51,79 @@ pip install -r requirements.txt
 python setup.py develop
 ```
 
-# **The followings will be updated!**
 
 ### Data Preparation
 - **THUMOS14 RGB data:**
 1. Download pre-processed RGB npy data (13.7GB): [\[Weiyun\]](https://share.weiyun.com/bP62lmHj)
 2. Unzip the RGB npy data to `./datasets/thumos14/validation_npy/` and `./datasets/thumos14/test_npy/`
+3. Download the annotations and our released **Open-Set Splits**: [\[THUMOS14 Annotations\]](https://drive.google.com/drive/folders/1dQUIhZYfmKoMLJSa79g2XHmvP_NuGtQ7?usp=sharing), and unzip them to `./datasets/thumos14/`
 
+- **ActivityNet 1.3 RGB data:**
+1. Download pre-processed videos (32.4GB): [\[Weiyun\]](https://share.weiyun.com/PXXtHcbp)
+2. Run the AFSD data processing tool to generate RGB npy data: `python3 AFSD/anet_data/video2npy.py THREAD_NUM`
+3. Download the annotations and our released **Open-Set Splits**: [\[ActivityNet1.3 Annotations\]](https://drive.google.com/drive/folders/163pxhHoSungM7cE0ZQu6_idGnW6y85wF?usp=sharing), and unzip them to `./datasets/activitynet/`
 
 ### Inference
-We provide the pretrained models contain I3D backbone model and final RGB and flow models for THUMOS14 dataset:
-[\[Google Drive\]](https://drive.google.com/drive/folders/1IG51-hMHVsmYpRb_53C85ISkpiAHfeVg?usp=sharing),
-[\[Weiyun\]](https://share.weiyun.com/ImV5WYil)
+We provide the pretrained models that contain I3D backbone model and OpenTAL final models on three open-set splits of THUMOS14:
+[\[Google Drive\]](https://drive.google.com/drive/folders/1lEospHdatqUvKQi4ODSaLm07timdmYyV?usp=sharing)
+
 ```shell script
-# run RGB model
-python3 AFSD/thumos14/test.py configs/thumos14.yaml --checkpoint_path=models/thumos14/checkpoint-15.ckpt --output_json=thumos14_rgb.json
+cd experiments/opental
+# run OpenTAL model inference, using THUMOS14 splits as the unknown.
+bash test_opental_final.sh 0  # GPU_ID=0
 
-# run flow model
-python3 AFSD/thumos14/test.py configs/thumos14_flow.yaml --checkpoint_path=models/thumos14_flow/checkpoint-16.ckpt --output_json=thumos14_flow.json
-
-# run fusion (RGB + flow) model
-python3 AFSD/thumos14/test.py configs/thumos14.yaml --fusion --output_json=thumos14_fusion.json
+# run OpenTAL model inference, using ActivityNet as the unknown.
+bash test_opental_cross_data.sh 0  # GPU_ID=0
 ```
+Results will be saved in: `./output/opental_{final|crossdata}/split_{0|1|2}/thumos14_{open_rgb|anet_merged}.json`.
+
 
 ### Evaluation
-The output json results of pretrained model can be downloaded from: [\[Google Drive\]](https://drive.google.com/drive/folders/10VCWQi1uXNNpDKNaTVnn7vSD9YVAp8ut?usp=sharing),
-[\[Weiyun\]](https://share.weiyun.com/R7RXuFFW)
+The output json results and evaluation reports of our pretrained model can be downloaded from: [\[Google Drive\]](https://drive.google.com/drive/folders/1CxW9vkNTzo3mOk9BYbOgTfBkXJu6qn7S?usp=sharing)
 ```shell script
-# evaluate THUMOS14 fusion result as example
-python3 AFSD/thumos14/eval.py output/thumos14_fusion.json
+cd experiments/opental
+# evaluate the inference results on dataset using THUMOS14 splits as the unknown.
+bash eval_opental_final.sh
 
-mAP at tIoU 0.3 is 0.6728296149479254
-mAP at tIoU 0.4 is 0.6242590551201842
-mAP at tIoU 0.5 is 0.5546668739091394
-mAP at tIoU 0.6 is 0.4374840824921885
-mAP at tIoU 0.7 is 0.3110112542745055
+# evaluate the inference results on dataset using ActivityNet as the unknown.
+bash eval_opental_cross_data.sh
 ```
+Final results will be reported on your shell terminal, intermediate results on each dataset split are saved in `./output/opental_{final|crossdata}/split_{0|1|2}/`
+
 
 ### Training
 ```shell script
-# train the RGB model
-python3 AFSD/thumos14/train.py configs/thumos14.yaml --lw=10 --cw=1 --piou=0.5
-
-# train the flow model
-python3 AFSD/thumos14/train.py configs/thumos14_flow.yaml --lw=10 --cw=1 --piou=0.5
+# train the OpenTAL model on a specific split (0/1/2), e.g., SPLIT=0
+cd experiments/opental
+SPLIT=0
+GPU_ID=0
+# with nohup command, the python process will be in backend for long-time running
+nohup bash train_opental_final.sh ${GPU_ID} ${SPLIT} >train_opental.log 2>&1 &
 ```
-### 
+
+To monitor your training status, you can either show the real-time text report or tensorboard visualization.
+```shell script
+# real-time text report
+cd experiments/opental
+tail -f train_opental.log
+
+# tensorboard visualization (we only recorded the training for split_0)
+cd models/thumos14/opental_final/split_0/tensorboard
+tensorboard --logdir=./ --port=6789
+```
+
 
 ## Citation
 If you find this project useful for your research, please use the following BibTeX entry.
+```
+@InProceedings{Bao_2022_CVPR,
+    author    = {Wentao Bao, Junwen Chen, Qi Yu, Yu Kong},
+    title     = {OpenTAL: Towards Open Set Temporal Action Localization},
+    booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
+    year      = {2022}
+}
+```
+
 ```
 @InProceedings{Lin_2021_CVPR,
     author    = {Lin, Chuming and Xu, Chengming and Luo, Donghao and Wang, Yabiao and Tai, Ying and Wang, Chengjie and Li, Jilin and Huang, Feiyue and Fu, Yanwei},
