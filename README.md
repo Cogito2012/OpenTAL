@@ -1,5 +1,5 @@
 # OpenTAL: Towards Open Set Temporal Action Localization
-[Project](https://www.rit.edu/actionlab/opental) **|** [Paper & Supp]() **|** [Presentation]()
+[Project](https://www.rit.edu/actionlab/opental) **|** [Paper & Supp](https://arxiv.org/pdf/2203.05114.pdf) **|** [Slides]()
 
 [Wentao Bao](https://cogito2012.github.io/homepage), 
 [Qi Yu](https://www.rit.edu/mining/qi-yu), 
@@ -23,9 +23,9 @@ The following figure shows an overview of our proposed OpenTAL method.
 
 ![opental](assets/opental.png)
 
-## Updates
-- (March, 2021) We released OpenTAL training and inference code.
-- (March, 2022) OpenTAL is accepted by CVPR2021.
+## :boom: Updates
+- (March, 2021) We released OpenTAL training and inference code, and open-set data splits.
+- (March, 2022) OpenTAL is accepted by CVPR 2022.
 
 ## Getting Started
 
@@ -114,12 +114,13 @@ tensorboard --logdir=./ --port=6789
 
 
 ## Citation
-If you find this project useful for your research, please use the following BibTeX entry.
+If you find this project useful for your research, please use the following BibTeX entries.
 ```
 @InProceedings{Bao_2022_CVPR,
-    author    = {Wentao Bao, Junwen Chen, Qi Yu, Yu Kong},
+    author    = {Wentao Bao, Qi Yu, Yu Kong},
     title     = {OpenTAL: Towards Open Set Temporal Action Localization},
     booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
+    month     = {June},
     year      = {2022}
 }
 ```
