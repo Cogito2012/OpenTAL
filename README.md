@@ -5,7 +5,7 @@
 [Qi Yu](https://www.rit.edu/mining/qi-yu), 
 [Yu Kong](https://people.rit.edu/yukics/)
 
-This is an official PyTorch implementation of OpenTAL, published in IEEE/CVF Conference on Computer Vision and Pattern Recognition (**CVPR**), 2022.
+This is an official PyTorch implementation of OpenTAL, accepted as an Oral paper in IEEE/CVF Conference on Computer Vision and Pattern Recognition (**CVPR Oral**), 2022.
 
 
 ## Open Set Temporal Action Localization (**OSTAL**) Task
@@ -24,8 +24,9 @@ The following figure shows an overview of our proposed OpenTAL method.
 ![opental](assets/opental.png)
 
 ## :boom: Updates
-- (March, 2021) We released OpenTAL training and inference code, and open-set data splits.
-- (March, 2022) OpenTAL is accepted by CVPR 2022.
+- (03-28-2022) OpenTAL paper is selected for an ORAL presentation! :tada: :tada: :tada:
+- (03-11-2022) We released OpenTAL training and inference code, and open-set data splits.
+- (03-02-2022) OpenTAL is accepted by CVPR 2022.
 
 ## Getting Started
 
