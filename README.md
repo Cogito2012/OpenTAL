@@ -24,6 +24,7 @@ The following figure shows an overview of our proposed OpenTAL method.
 ![opental](assets/opental.png)
 
 ## :boom: Updates
+- (08-15-2023) If you need the preprocessed RGB data but do not have access to Weiyun links, please send to me with your email that I can share with you the OneDrive links. Thanks!
 - (03-28-2022) OpenTAL paper is selected for an ORAL presentation! :tada: :tada: :tada:
 - (03-11-2022) We released OpenTAL training and inference code, and open-set data splits.
 - (03-02-2022) OpenTAL is accepted by CVPR 2022.
