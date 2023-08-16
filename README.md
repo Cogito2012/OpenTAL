@@ -1,5 +1,5 @@
 # OpenTAL: Towards Open Set Temporal Action Localization
-[Project](https://www.rit.edu/actionlab/opental) **|** [Paper & Supp](https://arxiv.org/pdf/2203.05114.pdf) **|** [Slides]()
+[Project](https://www.rit.edu/actionlab/opental) **|** [Paper & Supp](https://arxiv.org/pdf/2203.05114.pdf) **|** [Slides](assets/OpenTAL-Oral.pdf)
 
 [Wentao Bao](https://cogito2012.github.io/homepage), 
 [Qi Yu](https://www.rit.edu/mining/qi-yu), 
