@@ -58,16 +58,16 @@ python setup.py develop
 - **THUMOS14 RGB data:**
 1. Download pre-processed RGB npy data (13.7GB): [\[Weiyun\]](https://share.weiyun.com/bP62lmHj)
 2. Unzip the RGB npy data to `./datasets/thumos14/validation_npy/` and `./datasets/thumos14/test_npy/`
-3. Download the annotations and our released **Open-Set Splits**: [\[THUMOS14 Annotations\]](https://drive.google.com/drive/folders/1dQUIhZYfmKoMLJSa79g2XHmvP_NuGtQ7?usp=sharing), and unzip them to `./datasets/thumos14/`
+3. Download the annotations and our released **Open-Set Splits**: [\[THUMOS14 Annotations\]](https://drive.google.com/drive/folders/12xG0V1-UHlmIP09bZiVJw7BoUjNXvY33?usp=sharing), and place them at `./datasets/thumos14/`
 
 - **ActivityNet 1.3 RGB data:**
 1. Download pre-processed videos (32.4GB): [\[Weiyun\]](https://share.weiyun.com/PXXtHcbp)
 2. Run the AFSD data processing tool to generate RGB npy data: `python3 AFSD/anet_data/video2npy.py THREAD_NUM`
-3. Download the annotations and our released **Open-Set Splits**: [\[ActivityNet1.3 Annotations\]](https://drive.google.com/drive/folders/163pxhHoSungM7cE0ZQu6_idGnW6y85wF?usp=sharing), and unzip them to `./datasets/activitynet/`
+3. Download the annotations and our released **Open-Set Splits**: [\[ActivityNet1.3 Annotations\]](https://drive.google.com/drive/folders/11JouYYNjdWfqIfp-U5wwkJUufF5oRP2T?usp=sharing), and place them at `./datasets/activitynet/`
 
 ### Inference
 We provide the pretrained models that contain I3D backbone model and OpenTAL final models on three open-set splits of THUMOS14:
-[\[Google Drive\]](https://drive.google.com/drive/folders/1lEospHdatqUvKQi4ODSaLm07timdmYyV?usp=sharing)
+[\[Google Drive\]](https://drive.google.com/drive/folders/1T_e5lfh9wUfI74-mL6WcnOXQ1jGKEtCZ?usp=sharing)
 
 ```shell script
 cd experiments/opental
@@ -81,7 +81,7 @@ Results will be saved in: `./output/opental_{final|crossdata}/split_{0|1|2}/thum
 
 
 ### Evaluation
-The output json results and evaluation reports of our pretrained model can be downloaded from: [\[Google Drive\]](https://drive.google.com/drive/folders/1CxW9vkNTzo3mOk9BYbOgTfBkXJu6qn7S?usp=sharing)
+The output json results and evaluation reports of our pretrained model can be downloaded from: [\[Google Drive\]](https://drive.google.com/drive/folders/113l74X_dCkZmflw-_j-rIrlXAMscCv9T?usp=sharing)
 ```shell script
 cd experiments/opental
 # evaluate the inference results on dataset using THUMOS14 splits as the unknown.
